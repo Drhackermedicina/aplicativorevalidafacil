@@ -1,0 +1,16 @@
+{
+  "projects": {
+    "default": "revalida-companion",
+    "revalidafacil": "revalida-companion"
+  },
+  "targets": {
+    "appestacoes": {
+      "hosting": {
+        "revalidafacil-principal": [
+          "revalidafacil"
+        ]
+      }
+    }
+  },
+  "etags": {}
+}

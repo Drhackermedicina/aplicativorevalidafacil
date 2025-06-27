@@ -1,0 +1,336 @@
+<script setup>
+import { firebaseAuth } from '@/plugins/firebase'
+import { GoogleAuthProvider, RecaptchaVerifier, signInWithPhoneNumber, signInWithPopup } from 'firebase/auth'
+import { collection, doc, getDocs, getFirestore, query, setDoc, where } from 'firebase/firestore'
+import { computed, ref, watch } from 'vue'
+import { useRouter } from 'vue-router'
+
+const router = useRouter()
+const db = getFirestore()
+
+const loading = ref(false)
+const error = ref('')
+const smsSent = ref(false)
+const telefoneVerificado = ref(false)
+const smsCode = ref('')
+let confirmationResult = null
+
+const usuarioGoogle = ref(null)
+
+const form = ref({
+  nome: '',
+  sobrenome: '',
+  telefone: '',
+  cidade: '',
+  paisOrigem: '',
+  aceitouTermos: false,
+})
+
+const estadosBrasil = [
+  { nome: 'Acre', ddd: '68' }, { nome: 'Alagoas', ddd: '82' }, { nome: 'Amapá', ddd: '96' },
+  { nome: 'Amazonas', ddd: '92' }, { nome: 'Bahia', ddd: '71' }, { nome: 'Ceará', ddd: '85' },
+  { nome: 'Distrito Federal', ddd: '61' }, { nome: 'Espírito Santo', ddd: '27' }, { nome: 'Goiás', ddd: '62' },
+  { nome: 'Maranhão', ddd: '98' }, { nome: 'Mato Grosso', ddd: '65' }, { nome: 'Mato Grosso do Sul', ddd: '67' },
+  { nome: 'Minas Gerais', ddd: '31' }, { nome: 'Pará', ddd: '91' }, { nome: 'Paraíba', ddd: '83' },
+  { nome: 'Paraná', ddd: '41' }, { nome: 'Pernambuco', ddd: '81' }, { nome: 'Piauí', ddd: '86' },
+  { nome: 'Rio de Janeiro', ddd: '21' }, { nome: 'Rio Grande do Norte', ddd: '84' }, { nome: 'Rio Grande do Sul', ddd: '51' },
+  { nome: 'Rondônia', ddd: '69' }, { nome: 'Roraima', ddd: '95' }, { nome: 'Santa Catarina', ddd: '48' },
+  { nome: 'São Paulo', ddd: '11' }, { nome: 'Sergipe', ddd: '79' }, { nome: 'Tocantins', ddd: '63' },
+]
+
+const paises = [
+  {
+    nome: 'Brasil',
+    ddi: '+55',
+    estados: estadosBrasil,
+  },
+  {
+    nome: 'Argentina',
+    ddi: '+54',
+    estados: [{ nome: 'Buenos Aires', ddd: '11' }, { nome: 'Córdoba', ddd: '351' }],
+  },
+  {
+    nome: 'Chile',
+    ddi: '+56',
+    estados: [{ nome: 'Región Metropolitana', ddd: '2' }, { nome: 'Valparaíso', ddd: '32' }],
+  },
+]
+
+const paisSelecionado = ref('')
+const estadoSelecionado = ref('')
+const cidadeDigitada = ref('')
+const numeroTelefone = ref('')
+
+const estadosFiltrados = computed(() => {
+  const pais = paises.find(p => p.nome === paisSelecionado.value)
+  return pais ? pais.estados : []
+})
+
+const ddiSelecionado = computed(() => {
+  const pais = paises.find(p => p.nome === paisSelecionado.value)
+  return pais ? pais.ddi : ''
+})
+
+const telefoneCompleto = computed(() => {
+  if (!numeroTelefone.value) return ''
+  const numeroLimpo = numeroTelefone.value.replace(/\D/g, '')
+  return `${ddiSelecionado.value}${numeroLimpo}`
+})
+
+watch(telefoneCompleto, (novoValor) => {
+  form.value.telefone = novoValor
+})
+watch(paisSelecionado, (novoValor) => {
+  form.value.paisOrigem = novoValor
+  estadoSelecionado.value = ''
+})
+watch(cidadeDigitada, (novoValor) => {
+  form.value.cidade = novoValor
+})
+
+const loginComGoogle = async () => {
+  loading.value = true
+  error.value = ''
+  try {
+    const provider = new GoogleAuthProvider()
+    const result = await signInWithPopup(firebaseAuth, provider)
+    usuarioGoogle.value = result.user
+    // Preencha nome/sobrenome se vier do Google
+    form.value.nome = result.user.displayName?.split(' ')[0] || ''
+    form.value.sobrenome = result.user.displayName?.split(' ').slice(1).join(' ') || ''
+  } catch (e) {
+    error.value = 'Erro ao fazer login com Google: ' + e.message
+  } finally {
+    loading.value = false
+  }
+}
+
+function setupRecaptcha() {
+  if (!window.recaptchaVerifier) {
+    window.recaptchaVerifier = new RecaptchaVerifier(
+      firebaseAuth,
+      'recaptcha-container',
+      {
+        size: 'invisible',
+        'callback': () => {},
+        'expired-callback': () => {}
+      }
+    )
+    window.recaptchaVerifier.render()
+  }
+}
+
+async function enviarSMS() {
+  error.value = ''
+  loading.value = true
+  setupRecaptcha()
+  try {
+    confirmationResult = await signInWithPhoneNumber(firebaseAuth, form.value.telefone, window.recaptchaVerifier)
+    smsSent.value = true
+  } catch (e) {
+    error.value = 'Erro ao enviar SMS: ' + e.message
+    if (window.recaptchaVerifier) {
+      window.recaptchaVerifier.clear()
+      window.recaptchaVerifier = null
+    }
+  } finally {
+    loading.value = false
+  }
+}
+
+async function verificarCodigoSMS() {
+  if (!confirmationResult) {
+    error.value = "Objeto de confirmação não encontrado. Tente enviar o SMS novamente."
+    return
+  }
+  if (!smsCode.value || smsCode.value.length < 6) {
+    error.value = "Por favor, insira um código válido de 6 dígitos."
+    return
+  }
+  error.value = ''
+  loading.value = true
+  try {
+    await confirmationResult.confirm(smsCode.value)
+    telefoneVerificado.value = true
+  } catch (e) {
+    error.value = 'Código inválido ou expirado. Verifique o código ou tente reenviar o SMS. Erro: ' + e.message
+  } finally {
+    loading.value = false
+  }
+}
+
+async function salvarUsuarioFirestore() {
+  loading.value = true
+  error.value = ''
+  try {
+    const user = firebaseAuth.currentUser
+    if (!user) throw new Error('Usuário não autenticado')
+    if (!telefoneVerificado.value) throw new Error('O telefone precisa ser verificado antes de salvar.')
+
+    // Verifica se o telefone já está cadastrado
+    const q = query(collection(db, 'usuarios'), where('telefone', '==', form.value.telefone))
+    const querySnapshot = await getDocs(q)
+    if (!querySnapshot.empty) {
+      throw new Error('Este telefone já está cadastrado em outro usuário!')
+    }
+
+    await setDoc(doc(db, 'usuarios', user.uid), {
+      nome: form.value.nome,
+      sobrenome: form.value.sobrenome,
+      telefone: form.value.telefone,
+      cidade: form.value.cidade,
+      paisOrigem: form.value.paisOrigem,
+      telefoneVerificado: telefoneVerificado.value,
+      aceitouTermos: form.value.aceitouTermos,
+      dataCadastro: new Date(),
+      trialExpiraEm: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+      plano: 'trial',
+      planoExpiraEm: null
+    })
+    router.push('/login')
+  } catch (e) {
+    error.value = e.message
+  } finally {
+    loading.value = false
+  }
+}
+</script>
+
+<template>
+  <v-container class="fill-height d-flex align-center justify-center" style="background: #f5f5f9;">
+    <v-card class="pa-6" max-width="500" elevation="10" rounded="lg">
+      <v-card-title class="justify-center">
+        <v-avatar color="primary" size="48" class="mb-2">
+          <v-icon size="32">mdi-account-plus</v-icon>
+        </v-avatar>
+      </v-card-title>
+      <v-card-subtitle class="text-center mb-4">
+        <span class="text-h5 font-weight-bold">Cadastro</span>
+        <div class="text-body-2 mt-1">Cadastre-se com Google e complete seus dados</div>
+      </v-card-subtitle>
+      <v-card-text>
+        <v-btn
+          v-if="!usuarioGoogle"
+          @click="loginComGoogle"
+          color="primary"
+          block
+          class="mb-4"
+          :loading="loading"
+        >
+          <v-icon left>mdi-google</v-icon>
+          Entrar com Google
+        </v-btn>
+
+        <v-form v-if="usuarioGoogle" @submit.prevent="salvarUsuarioFirestore">
+          <v-row dense>
+            <v-col cols="12" sm="6">
+              <v-text-field v-model="form.nome" label="Nome" required prepend-inner-icon="mdi-account" />
+            </v-col>
+            <v-col cols="12" sm="6">
+              <v-text-field v-model="form.sobrenome" label="Sobrenome" required prepend-inner-icon="mdi-account-outline" />
+            </v-col>
+            <v-col cols="12" sm="6">
+              <v-select
+                v-model="paisSelecionado"
+                :items="paises.map(p => p.nome)"
+                label="País"
+                required
+                prepend-inner-icon="mdi-earth"
+              />
+            </v-col>
+            <v-col cols="12" sm="6">
+              <v-select
+                v-model="estadoSelecionado"
+                :items="estadosFiltrados.map(e => e.nome)"
+                label="Estado/Província"
+                required
+                :disabled="!paisSelecionado"
+                prepend-inner-icon="mdi-map-marker"
+              />
+            </v-col>
+            <v-col cols="12" sm="6">
+              <v-text-field
+                v-model="cidadeDigitada"
+                label="Cidade"
+                :disabled="!estadoSelecionado"
+                prepend-inner-icon="mdi-city"
+              />
+            </v-col>
+            <v-col cols="12" sm="6">
+              <v-text-field
+                v-model="numeroTelefone"
+                label="Telefone (DDD + Número)"
+                required
+                :prefix="ddiSelecionado"
+                :disabled="!paisSelecionado"
+                hint="Digite o DDD e o número. Ex: 11999999999"
+                persistent-hint
+                type="tel"
+                prepend-inner-icon="mdi-cellphone"
+              />
+            </v-col>
+          </v-row>
+
+          <v-btn
+            v-if="!smsSent && !telefoneVerificado"
+            @click.prevent="enviarSMS"
+            color="primary"
+            block
+            class="mt-4"
+            :disabled="!form.nome || !form.sobrenome || !paisSelecionado || !estadoSelecionado || !numeroTelefone"
+            :loading="loading"
+          >
+            <v-icon left>mdi-message-text</v-icon>
+            Enviar SMS de Verificação
+          </v-btn>
+
+          <div v-if="smsSent && !telefoneVerificado" class="mt-4">
+            <v-alert type="info" dense>
+              Enviamos um código de 6 dígitos para <strong>{{ form.telefone }}</strong>.
+            </v-alert>
+            <v-otp-input v-model="smsCode" :length="6" class="mt-2"></v-otp-input>
+            <v-btn @click.prevent="verificarCodigoSMS" color="success" block class="mt-2" :loading="loading">
+              <v-icon left>mdi-check</v-icon>
+              Verificar Código
+            </v-btn>
+            <v-btn @click.prevent="enviarSMS" text block small class="mt-2" :loading="loading">
+              <v-icon left>mdi-refresh</v-icon>
+              Reenviar SMS
+            </v-btn>
+          </div>
+
+          <v-alert v-if="telefoneVerificado" type="success" class="my-4" border="start" colored-border>
+            <v-icon left>mdi-check-circle</v-icon>
+            Telefone verificado com sucesso!
+          </v-alert>
+
+          <v-checkbox
+            v-model="form.aceitouTermos"
+            label="Li e aceito os termos de uso"
+            required
+            :disabled="!telefoneVerificado"
+            class="mt-2"
+          />
+
+          <v-alert v-if="error" type="error" class="my-2" dense>
+            <v-icon left>mdi-alert-circle</v-icon>
+            {{ error }}
+          </v-alert>
+
+          <v-btn
+            :loading="loading"
+            type="submit"
+            color="success"
+            block
+            class="mt-4"
+            :disabled="!telefoneVerificado || !form.aceitouTermos"
+          >
+            <v-icon left>mdi-arrow-right-bold</v-icon>
+            Salvar e Continuar
+          </v-btn>
+        </v-form>
+      </v-card-text>
+    </v-card>
+    <div id="recaptcha-container"></div>
+  </v-container>
+</template>

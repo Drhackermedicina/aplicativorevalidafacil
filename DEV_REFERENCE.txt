@@ -1,0 +1,60 @@
+# Guia de Referência Rápida do Projeto
+
+## Estrutura de Pastas
+
+- **src/@layouts/**  
+  Componentes de layout (VerticalNav, VerticalNavLayout, VerticalNavGroup, VerticalNavLink, etc).  
+  Responsável pela estrutura do app, sidebar, header, footer, etc.
+
+- **src/@core/**  
+  Componentes core reutilizáveis, helpers, utilitários, SCSS base, etc.
+
+- **src/plugins/**  
+  Plugins globais do projeto (ex: vuetify, iconify, etc).
+
+- **src/plugins/iconify/**  
+  Ícones customizados e configurações do Iconify.
+
+- **src/plugins/vuetify/**  
+  Configuração do Vuetify, temas, customizações.
+
+- **src/assets/**  
+  Imagens, logos, fontes, arquivos estáticos.
+
+- **src/components/**  
+  Componentes Vue globais e utilitários.
+
+- **src/pages/**  
+  Páginas principais do app (ex: dashboard.vue, login.vue, etc).
+
+---
+
+## Como usar este arquivo
+
+- Sempre consulte este arquivo antes de criar, adaptar ou buscar componentes, layouts, plugins ou assets.
+- Para adicionar novos componentes, siga o padrão de organização acima.
+- Para adaptar código antigo, utilize os componentes e estilos do tema Materio Vuetify, consultando as pastas acima.
+- Para ícones, utilize os disponíveis em `src/plugins/iconify` ou configure novos conforme a documentação do projeto.
+
+---
+
+# PROMPT AUTOEXECUTÁVEL PARA DESENVOLVIMENTO E IA
+
+> **ATENÇÃO — LEITURA OBRIGATÓRIA ANTES DE QUALQUER AÇÃO**
+>
+> Você está atuando como programador sênior, auxiliando no desenvolvimento, integração, adaptação e melhoria contínua deste app, sempre com foco em eficácia, clareza e manutenção do histórico.
+>
+> **Sempre que iniciar uma nova sessão, ANTES e DEPOIS de qualquer alteração no código, leia e siga estas instruções:**
+>
+> 1. Leia o `README.md` para entender os objetivos, funcionalidades, histórico e tarefas do projeto.
+> 2. Leia este `DEV_REFERENCE.txt` para saber onde encontrar e como organizar componentes, layouts, plugins, ícones e assets.
+> 3. Sempre que acessar, criar ou modificar arquivos/pastas, registre no `DEV_REFERENCE.txt` a alteração.
+> 4. Mantenha o `README.md` atualizado com todas as tarefas e alterações realizadas.
+> 5. Siga rigorosamente o padrão do tema Materio Vuetify para todos os novos códigos e adaptações.
+> 6. Utilize os ícones e componentes disponíveis nas pastas `src/@layouts`, `src/@core`, `src/plugins`, `src/assets`, `src/components`, `src/pages`, `src/services` e demais pastas documentadas.
+> 7. Antes de modificar qualquer arquivo, consulte o backup correspondente e o histórico em `backup-historico.txt`.
+> 8. Sempre mantenha o histórico atualizado e siga as decisões registradas neste projeto.
+>
+> **Nunca faça alterações sem antes investigar e compreender o impacto no projeto.**
+>
+> **Este prompt deve ser lido e seguido SEMPRE, por qualquer desenvolvedor ou IA, ao iniciar uma nova conversa, tarefa ou alteração.**
