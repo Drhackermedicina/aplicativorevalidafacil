@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 # Diário de Desenvolvimento — Materio Vuetify VueJS Admin
 
 Este arquivo serve como diário de bordo do projeto.  
@@ -163,3 +164,6 @@ npm run dev
 ```sh
 npm run build
 ```
+=======
+# aplicativorevalidafacil
+>>>>>>> 1d0090a4b085d7ed16c4995bc78f7db8b44cc236
