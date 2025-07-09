@@ -27,3 +27,5 @@ export const waitForAuth = () => {
   })
 }
 
+const backendUrl = import.meta.env.VITE_BACKEND_URL || 'https://backendraiway-production.up.railway.app';
+

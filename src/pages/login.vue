@@ -23,10 +23,14 @@ const loginComGoogle = async () => {
 
   try {
     const result = await signInWithPopup(firebaseAuth, provider)
-    const currentUser = result.user
-    console.log('UID do usuário autenticado:', currentUser.value.uid)
-    // Após o login bem-sucedido, redireciona para o dashboard
-    router.push('/app/dashboard')
+
+    if (result && result.user) {
+      console.log('UID do usuário autenticado:', result.user.uid)
+      // Após o login bem-sucedido, redireciona para o dashboard
+      router.push('/app/dashboard')
+    } else {
+      throw new Error('Usuário não retornado pelo Firebase')
+    }
   } catch (error) {
     console.error("Erro no login com Google:", error)
     alert("Ocorreu um erro ao tentar fazer o login. Tente novamente.")

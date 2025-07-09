@@ -1,5 +1,5 @@
 import { currentUser, waitForAuth } from '@/plugins/auth'
-import { doc, getDoc, getFirestore } from 'firebase/firestore'
+import { doc, getDoc, getFirestore, updateDoc } from 'firebase/firestore'
 import { createRouter, createWebHistory } from 'vue-router'
 import { routes } from './routes'
 
@@ -10,6 +10,20 @@ const router = createRouter({
   routes: [
     ...routes,
     // Remova a rota '/dashboard' duplicada se não for usar!
+    {
+      path: '/station/:id/simulate',
+      name: 'station-simulate', // <-- nome correto da rota
+      component: () => import('@/pages/SimulationView.vue')
+    },
+    {
+      path: '/app/station-edit/:id?',
+      name: 'StationEdit',
+      component: () => import('@/pages/EditStationView.vue'),
+      meta: {
+        requiresAuth: true,
+        layout: 'default',
+      },
+    },
   ],
 })
 
@@ -24,10 +38,15 @@ router.beforeEach(async (to, from, next) => {
     const db = getFirestore()
     const userDoc = await getDoc(doc(db, 'usuarios', currentUser.value.uid))
     const user = userDoc.data()
+    // Checagem de cadastro completo: documento existe e campos obrigatórios preenchidos
     if (
       !userDoc.exists() ||
-      !user.telefoneVerificado ||
-      !user.aceitouTermos
+      !user?.aceitouTermos ||
+      !user?.cpf ||
+      !user?.nome ||
+      !user?.sobrenome ||
+      !user?.cidade ||
+      !user?.paisOrigem
     ) {
       // Redirecione para /register se cadastro incompleto
       next('/register')
@@ -54,8 +73,31 @@ router.beforeEach(async (to, from, next) => {
   next()
 })
 
+// Atualiza status do usuário conforme a rota
+router.afterEach(async (to, from) => {
+  await waitForAuth()
+  if (!currentUser.value?.uid) return
+  const db = getFirestore()
+  const ref = doc(db, 'usuarios', currentUser.value.uid)
+  if (to.name === 'simulation-view' || to.name === 'station-simulation' || to.path.includes('/simulate')) {
+    await updateDoc(ref, { status: 'treinando' })
+  } else {
+    await updateDoc(ref, { status: 'disponivel' })
+  }
+})
+
+window.addEventListener('beforeunload', () => {
+  if (currentUser.value?.uid) {
+    const db = getFirestore()
+    const ref = doc(db, 'usuarios', currentUser.value.uid)
+    // Não pode usar await aqui, pois beforeunload não espera Promises
+    updateDoc(ref, { status: 'offline' })
+  }
+})
+
 export default function (app) {
   app.use(router)
 }
 
 export { router }
+

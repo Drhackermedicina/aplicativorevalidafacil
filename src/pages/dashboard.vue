@@ -8,6 +8,7 @@ import AnalyticsTotalProfitLineCharts from '@/views/dashboard/AnalyticsTotalProf
 import AnalyticsTransactions from '@/views/dashboard/AnalyticsTransactions.vue'
 import AnalyticsUserTable from '@/views/dashboard/AnalyticsUserTable.vue'
 import AnalyticsWeeklyOverview from '@/views/dashboard/AnalyticsWeeklyOverview.vue'
+import JoinSimulationByCode from '@/views/dashboard/JoinSimulationByCode.vue'; // Importando o novo componente
 import CardStatisticsVertical from '@core/components/cards/CardStatisticsVertical.vue'
 
 const totalProfit = {
@@ -31,9 +32,17 @@ const newProject = {
 
 <template>
   <VRow class="match-height">
+    <!-- Novo Componente para Entrar na Simulação -->
     <VCol
       cols="12"
-      md="4"
+      md="6"
+    >
+      <JoinSimulationByCode />
+    </VCol>
+
+    <VCol
+      cols="12"
+      md="6"
     >
       <AnalyticsAward />
     </VCol>

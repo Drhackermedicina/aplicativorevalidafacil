@@ -1,31 +1,18 @@
 <script setup>
 import VerticalNavGroup from '@layouts/components/VerticalNavGroup.vue';
 import VerticalNavLink from '@layouts/components/VerticalNavLink.vue';
+
+// Substitui o grupo por um link único para Estações
+const estacoesLink = {
+  title: 'Estações',
+  icon: 'ri-hospital-line',
+  to: '/app/station-list',
+};
 </script>
 
 <template>
   <!-- ESTAÇÕES -->
-  <VerticalNavGroup
-    :item="{
-      title: 'ESTAÇÕES',
-      icon: 'ri-map-pin-line',
-    }"
-  >
-    <VerticalNavLink
-      :item="{
-        title: 'REVALIDA FÁCIL',
-        icon: 'ri-graduation-cap-line',
-        to: '/revalida-facil',
-      }"
-    />
-    <VerticalNavLink
-      :item="{
-        title: 'INEP',
-        icon: 'ri-government-line',
-        to: '/inep',
-      }"
-    />
-  </VerticalNavGroup>
+  <VerticalNavLink :item="estacoesLink" />
 
   <!-- ARENA -->
   <VerticalNavGroup
@@ -38,14 +25,15 @@ import VerticalNavLink from '@layouts/components/VerticalNavLink.vue';
       :item="{
         title: 'Chat',
         icon: 'ri-wechat-line',
-        to: '/arena/chat',
+        to: '/app/arena/chat',
       }"
     />
     <VerticalNavLink
       :item="{
         title: 'Buscar Usuários',
         icon: 'ri-search-line',
-        to: '/arena/buscar-usuarios',
+        to: '/app/arena/buscar-usuarios',
+        disabled: true // Desativado temporariamente
       }"
     />
   </VerticalNavGroup>

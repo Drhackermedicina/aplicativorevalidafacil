@@ -72,6 +72,15 @@ export default defineConfig({
   
   build: {
     chunkSizeWarningLimit: 5000,
+    // Gera builds para múltiplos diretórios de saída (um por vez)
+    // Para facilitar deploy em diferentes domínios, use scripts de build customizados
+    // Exemplo de uso: npm run build:revalida-companion, npm run build:revalidafacilapp, etc.
+    // Por padrão, o Vite só permite um outDir por build. Para builds múltiplos, use scripts:
+    // "build:revalida-companion": "vite build --outDir=dist-revalida-companion",
+    // "build:revalidafacilapp": "vite build --outDir=dist-revalidafacilapp",
+    // "build:webapp": "vite build --outDir=dist-webapp"
+    // O padrão continua sendo 'dist'
+    outDir: 'dist',
   },
   optimizeDeps: {
     exclude: ['vuetify'],

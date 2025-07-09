@@ -1,11 +1,11 @@
 export const routes = [
-  // A rota raiz '/' agora aponta para a landing page
+  // Landing, login e register SEM layout global
   {
     path: '/',
-    component: () => import('@/layouts/blank.vue'),
+    component: () => import('@/layouts/components/blank.vue'),
     children: [
       {
-        path: '', // Caminho vazio para a rota raiz
+        path: '',
         name: 'landing-page',
         component: () => import('@/pages/landingpage.vue'),
       },
@@ -19,8 +19,6 @@ export const routes = [
         name: 'register',
         component: () => import('@/pages/register.vue'),
       },
-      // Remova ou comente a linha abaixo:
-      // { path: 'completar-cadastro', name: 'completar-cadastro', component: () => import('@/pages/completar-cadastro.vue') },
       {
         path: '/:pathMatch(.*)*',
         name: 'error',
@@ -28,8 +26,7 @@ export const routes = [
       },
     ],
   },
-  
-  // O layout padrão agora está sob um caminho que não é a raiz
+  // Demais rotas protegidas com layout global
   {
     path: '/app',
     component: () => import('@/layouts/default.vue'),
@@ -75,7 +72,117 @@ export const routes = [
         name: 'teste-ia',
         component: () => import('@/pages/teste-ia.vue'),
       },
+      {
+        path: 'admin-upload',
+        name: 'admin-upload',
+        component: () => import('@/pages/AdminUpload.vue'),
+      },
+      {
+        path: 'admin',
+        name: 'admin-view',
+        component: () => import('@/pages/AdminView.vue'),
+      },
+      {
+        path: 'chat',
+        name: 'chat-view',
+        component: () => import('@/pages/ChatView.vue'),
+      },
+      {
+        path: 'performance',
+        name: 'performance-view',
+        component: () => import('@/pages/PerformanceView.vue'),
+      },
+      {
+        path: 'ranking',
+        name: 'ranking-view',
+        component: () => import('@/pages/RankingView.vue'),
+      },
+      {
+        path: 'simulation/:id',
+        name: 'simulation-view',
+        component: () => import('@/pages/SimulationView.vue'),
+        props: true,
+      },
+      {
+        path: 'station-list',
+        name: 'station-list',
+        component: () => import('@/pages/StationList.vue'),
+      },     
+      {
+        path: 'station/:id',
+        name: 'station-view',
+        component: () => import('@/pages/StationView.vue'),
+        props: true,
+      },
+      {
+        path: 'station/:id/simulate',
+        name: 'station-simulation',
+        component: () => import('@/pages/SimulationView.vue'),
+        props: true,
+      },
+      {
+        path: 'stations-index',
+        name: 'stations-index',
+        component: () => import('@/pages/StationList.vue'),
+      },
+      {
+        path: 'arena/buscar-usuarios',
+        name: 'buscar-usuarios',
+        component: () => import('@/pages/BuscarUsuarios.vue'),
+      },
+      {
+        path: 'arena/chat',
+        name: 'chat-view',
+        component: () => import('@/pages/ChatView.vue'),
+      },
+      {
+        path: 'aguarde-simulacao',
+        name: 'aguarde-simulacao',
+        component: () => import('@/pages/aguarde-simulacao.vue'),
+      }, 
     ],
   },
-]
 
+  // Rotas da Área do Candidato
+  {
+    path: '/candidato',
+    component: () => import('@/layouts/default.vue'),
+    meta: { requiresAuth: true },
+    children: [
+      {
+        path: 'progresso',
+        name: 'candidato-progresso',
+        component: () => import('@/pages/candidato/Progresso.vue'),
+      },
+      {
+        path: 'estatisticas',
+        name: 'candidato-estatisticas',
+        component: () => import('@/pages/candidato/Estatisticas.vue'),
+      },
+      {
+        path: 'ranking',
+        name: 'candidato-ranking',
+        component: () => import('@/pages/candidato/Ranking.vue'),
+      },
+      {
+        path: 'historico',
+        name: 'candidato-historico',
+        component: () => import('@/pages/candidato/Historico.vue'),
+      },
+    ],
+  },
+
+  // Rotas absolutas para acesso direto às estações e simulação (REMOVIDAS para garantir layout global)
+  // {
+  //   path: '/station/:id',
+  //   name: 'station-view-absolute',
+  //   component: () => import('@/pages/StationView.vue'),
+  //   props: true,
+  // },
+  // {
+  //   path: '/station/:id/simulate',
+  //   name: 'station-simulation-absolute',
+  //   component: () => import('@/pages/SimulationView.vue'),
+  //   props: true,
+  // },
+]

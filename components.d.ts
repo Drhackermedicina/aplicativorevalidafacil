@@ -14,8 +14,10 @@ declare module 'vue' {
     MoreBtn: typeof import('./src/@core/components/MoreBtn.vue')['default']
     RouterLink: typeof import('vue-router')['RouterLink']
     RouterView: typeof import('vue-router')['RouterView']
+    StationEditor: typeof import('./src/components/StationEditor.vue')['default']
     ThemeCustomizer: typeof import('./src/components/ThemeCustomizer.vue')['default']
     ThemeSwitcher: typeof import('./src/@core/components/ThemeSwitcher.vue')['default']
+    TiptapEditor: typeof import('./src/components/TiptapEditor.vue')['default']
     VueApexCharts: typeof import('vue3-apexcharts')['default']
   }
 }

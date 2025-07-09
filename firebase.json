@@ -17,6 +17,17 @@
         "source": "**",
         "destination": "/index.html"
       }
+    ],
+    "headers": [
+      {
+        "source": "**",
+        "headers": [
+          {
+            "key": "Content-Security-Policy",
+            "value": "script-src 'self' https://www.google.com https://www.gstatic.com https://apis.google.com https://www.recaptcha.net 'unsafe-inline'; object-src 'self'; connect-src 'self' https://www.googleapis.com https://firebase.googleapis.com https://firestore.googleapis.com https://www.gstatic.com https://www.google.com https://www.recaptcha.net https://identitytoolkit.googleapis.com https://securetoken.googleapis.com https://apis.google.com wss://*.firebaseio.com https://backendraiway-production.up.railway.app wss://backendraiway-production.up.railway.app;"
+          }
+        ]
+      }
     ]
   },
   "storage": {

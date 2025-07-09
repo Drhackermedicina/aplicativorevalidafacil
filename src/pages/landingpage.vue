@@ -1,9 +1,9 @@
 <script setup>
-import { useTheme } from 'vuetify'
-import { useRouter } from 'vue-router'
-import { onMounted } from 'vue'
 import { currentUser, waitForAuth } from '@/plugins/auth'
 import revalidaFacilLogo from '@images/revalidafacillogo.png'
+import { onMounted } from 'vue'
+import { useRouter } from 'vue-router'
+import { useTheme } from 'vuetify'
 
 const vuetifyTheme = useTheme()
 const router = useRouter()
@@ -162,8 +162,19 @@ const steps = [
         <v-row justify="space-between" align="center" class="py-4">
           <v-col cols="12" md="4" class="text-center text-md-left">
              <div class="d-flex align-center justify-center justify-md-start mb-4">
-                <img :src="revalidaFacilLogo" alt="Revalida Fácil Logo" style="block-size: 30px;" class="mr-3" />
-                <h3 class="text-h5 font-weight-bold">REVALIDA FÁCIL</h3>
+                <RouterLink
+                  to="/app/dashboard"
+                  class="d-flex align-center gap-3"
+                >
+                  <img
+                    :src="revalidaFacilLogo"
+                    alt="Revalida Fácil Logo"
+                    style="block-size: 40px;"
+                  >
+                  <h2 class="font-weight-medium text-2xl text-uppercase">
+                    REVALIDA FÁCIL
+                  </h2>
+                </RouterLink>
             </div>
             <p class="text-grey-lighten-1">
               Sua preparação para o exame de revalidação médica.
