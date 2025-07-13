@@ -1,4 +1,6 @@
 <script setup>
+import { VIcon } from 'vuetify/components/VIcon';
+import { VTooltip } from 'vuetify/components/VTooltip';
 const props = defineProps({
   item: {
     type: null,
@@ -18,10 +20,17 @@ const props = defineProps({
       :href="item.href"
       :target="item.target"
     >
-      <VIcon
-        :icon="item.icon || 'ri-checkbox-blank-circle-line'"
-        class="nav-item-icon"
-      />
+      <VTooltip location="right">
+        <template #activator="{ props }">
+          <VIcon
+            v-bind="props"
+            :icon="item.icon || 'ri-checkbox-blank-circle-line'"
+            class="nav-item-icon"
+            :color="item.iconColor || undefined"
+          />
+        </template>
+        {{ item.title }}
+      </VTooltip>
       <!-- 👉 Title -->
       <span class="nav-item-title">
         {{ item.title }}

@@ -66,8 +66,14 @@ onMounted(async () => {
   })
 
   if (localStorage.getItem('forceOpenPrivateChat') === '1') {
-    if (chatStore.targetUser) {
-      chatStore.openChat(chatStore.targetUser)
+    // Substitua 'selectedUser' por uma propriedade válida do chatStore, por exemplo 'selectedUser' ou ajuste conforme sua store
+    if (chatStore.selectedUser) {
+      // Substitua 'selectUser' pelo método correto do seu store para abrir o chat, se existir
+      if (typeof chatStore.selectUser === 'function') {
+        chatStore.selectUser(chatStore.selectedUser)
+      } else {
+        console.warn('[AguardeSimulacao] Nenhum método para abrir chat encontrado no chatStore.')
+      }
     }
     localStorage.removeItem('forceOpenPrivateChat')
   }

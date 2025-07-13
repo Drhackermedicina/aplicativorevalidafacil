@@ -126,6 +126,25 @@ function validarEstruturaEstacao(estacao) {
   return true;
 }
 
+function normalizarPEP(estacao) {
+  if (!estacao.padraoEsperadoProcedimento) return;
+  // Remove promptIA se existir
+  if (estacao.promptIA) delete estacao.promptIA;
+  // Se itensAvaliacao estiver em sinteseEstacao, move para o local correto
+  if (
+    estacao.padraoEsperadoProcedimento.sinteseEstacao &&
+    Array.isArray(estacao.padraoEsperadoProcedimento.sinteseEstacao.itensAvaliacao)
+  ) {
+    estacao.padraoEsperadoProcedimento.itensAvaliacao = estacao.padraoEsperadoProcedimento.sinteseEstacao.itensAvaliacao;
+    delete estacao.padraoEsperadoProcedimento.sinteseEstacao.itensAvaliacao;
+  }
+  // Garante que itensAvaliacao seja array
+  if (!Array.isArray(estacao.padraoEsperadoProcedimento.itensAvaliacao)) {
+    estacao.padraoEsperadoProcedimento.itensAvaliacao = [];
+  }
+}
+
+// Chame normalizarPEP antes de salvar
 async function processarEstacaoDoJson() {
   if (!estacaoCarregadaDoJson.value) {
     mensagemStatusUpload.value = "Nenhum JSON carregado para processar.";
@@ -143,6 +162,8 @@ async function processarEstacaoDoJson() {
     estaProcessandoUpload.value = false;
     return;
   }
+  // --- NOVO: Normaliza o PEP ---
+  normalizarPEP(estacaoCarregadaDoJson.value);
 
   const stationTitleForMessage = estacaoCarregadaDoJson.value.tituloEstacao || estacaoCarregadaDoJson.value.idEstacao || "Estação sem título/ID";
   mensagemStatusUpload.value = `Validado. Salvando "${stationTitleForMessage}" no Firestore...`;

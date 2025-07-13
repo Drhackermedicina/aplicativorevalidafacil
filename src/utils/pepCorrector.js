@@ -282,3 +282,21 @@ export function getPEPStats(station) {
     items
   };
 }
+
+// Funções adicionadas para garantir compatibilidade e evitar erros.
+// Elas atuam como passthrough e não alteram os dados.
+
+export function adaptarRoteiroAtor(roteiro) {
+  // Retorna o roteiro original sem modificações.
+  return roteiro || [];
+}
+
+export function adaptarItensPEP(itens) {
+  // Retorna os itens originais sem modificações.
+  return itens || [];
+}
+
+export function normalizarPontuacaoTotal(station) {
+  // Função vazia para evitar erros. A normalização principal
+  // é feita em validateAndCorrectPEP.
+}

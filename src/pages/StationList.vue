@@ -776,9 +776,14 @@ const exampleVariable = ref(null); // Exemplo de declaração válida
 <template>
   <v-container fluid class="pa-0">
     <!-- Botão de toggle para expandir/recolher sidebar -->
-    <v-btn icon fixed top left @click="toggleCollapse" class="ma-3 z-index-5">
-      <v-icon>ri-menu-line</v-icon>
-    </v-btn>
+    <v-tooltip location="right">
+      <template #activator="{ props }">
+        <v-btn icon fixed top left @click="toggleCollapse" class="ma-3 z-index-5" v-bind="props">
+          <v-icon>ri-menu-line</v-icon>
+        </v-btn>
+      </template>
+      Abrir/Fechar menu lateral
+    </v-tooltip>
      <v-row>
       <v-col cols="12" md="12" class="mx-auto">
         <!-- Botão Admin Upload (visível apenas para administradores) -->

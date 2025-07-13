@@ -67,7 +67,7 @@ export const routes = [
         name: 'form-layouts',
         component: () => import('@/pages/form-layouts.vue'),
       },
-       {
+      {
         path: 'teste-ia',
         name: 'teste-ia',
         component: () => import('@/pages/teste-ia.vue'),
@@ -83,19 +83,13 @@ export const routes = [
         component: () => import('@/pages/AdminView.vue'),
       },
       {
-        path: 'chat',
-        name: 'chat-view',
-        component: () => import('@/pages/ChatView.vue'),
-      },
-      {
-        path: 'performance',
-        name: 'performance-view',
-        component: () => import('@/pages/PerformanceView.vue'),
-      },
-      {
-        path: 'ranking',
-        name: 'ranking-view',
-        component: () => import('@/pages/RankingView.vue'),
+        path: 'chat-group',
+        name: 'ChatGroupView',
+        component: () => import('@/pages/ChatGroupView.vue'),
+        meta: {
+          requiresAuth: true,
+          layout: 'default',
+        },
       },
       {
         path: 'simulation/:id',
@@ -107,7 +101,13 @@ export const routes = [
         path: 'station-list',
         name: 'station-list',
         component: () => import('@/pages/StationList.vue'),
-      },     
+      },
+      {
+        path: 'edit-station/:id',
+        name: 'edit-station',
+        component: () => import('@/pages/EditStationView.vue'),
+        props: true,
+      },
       {
         path: 'station/:id',
         name: 'station-view',
@@ -131,15 +131,25 @@ export const routes = [
         component: () => import('@/pages/BuscarUsuarios.vue'),
       },
       {
-        path: 'arena/chat',
-        name: 'chat-view',
-        component: () => import('@/pages/ChatView.vue'),
-      },
-      {
         path: 'aguarde-simulacao',
         name: 'aguarde-simulacao',
         component: () => import('@/pages/aguarde-simulacao.vue'),
-      }, 
+      },
+      {
+        path: 'ranking',
+        name: 'ranking-geral',
+        component: () => import('@/pages/RankingView.vue'),
+      },
+      {
+        path: 'chat-private/:uid',
+        name: 'ChatPrivateView',
+        component: () => import('@/pages/ChatPrivateView.vue'),
+        meta: {
+          requiresAuth: true,
+          layout: 'default',
+        },
+        props: true,
+      },
     ],
   },
 
@@ -160,14 +170,19 @@ export const routes = [
         component: () => import('@/pages/candidato/Estatisticas.vue'),
       },
       {
-        path: 'ranking',
-        name: 'candidato-ranking',
-        component: () => import('@/pages/candidato/Ranking.vue'),
-      },
-      {
         path: 'historico',
         name: 'candidato-historico',
         component: () => import('@/pages/candidato/Historico.vue'),
+      },
+      {
+        path: 'performance',
+        name: 'candidato-performance',
+        component: () => import('@/pages/candidato/PerformanceView.vue'),
+      },
+      {
+        path: 'ranking',
+        name: 'candidato-ranking',
+        component: () => import('@/pages/candidato/RankingView.vue'),
       },
     ],
   },

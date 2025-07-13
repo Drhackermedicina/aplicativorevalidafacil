@@ -1,9 +1,9 @@
 <script setup>
+import { currentUser } from '@/plugins/auth'
+import { firebaseAuth } from '@/plugins/firebase'
+import { signOut } from 'firebase/auth'
 import { computed } from 'vue'
 import { useRouter } from 'vue-router'
-import { signOut } from 'firebase/auth'
-import { firebaseAuth } from '@/plugins/firebase'
-import { currentUser } from '@/plugins/auth'
 
 import avatar1 from '@images/avatars/avatar-1.png'
 
@@ -77,61 +77,6 @@ const logout = async () => {
             </VListItemTitle>
             <VListItemSubtitle>{{ userEmail }}</VListItemSubtitle>
           </VListItem>
-          <VDivider class="my-2" />
-
-          <!-- 👉 Profile -->
-          <VListItem link>
-            <template #prepend>
-              <VIcon
-                class="me-2"
-                icon="ri-user-line"
-                size="22"
-              />
-            </template>
-
-            <VListItemTitle>Perfil</VListItemTitle>
-          </VListItem>
-
-          <!-- 👉 Settings -->
-          <VListItem link>
-            <template #prepend>
-              <VIcon
-                class="me-2"
-                icon="ri-settings-4-line"
-                size="22"
-              />
-            </template>
-
-            <VListItemTitle>Configurações</VListItemTitle>
-          </VListItem>
-
-          <!-- 👉 Pricing -->
-          <VListItem link>
-            <template #prepend>
-              <VIcon
-                class="me-2"
-                icon="ri-money-dollar-circle-line"
-                size="22"
-              />
-            </template>
-
-            <VListItemTitle>Preços</VListItemTitle>
-          </VListItem>
-
-          <!-- 👉 FAQ -->
-          <VListItem link>
-            <template #prepend>
-              <VIcon
-                class="me-2"
-                icon="ri-question-line"
-                size="22"
-              />
-            </template>
-
-            <VListItemTitle>FAQ</VListItemTitle>
-          </VListItem>
-
-          <!-- Divider -->
           <VDivider class="my-2" />
 
           <!-- 👉 Logout -->

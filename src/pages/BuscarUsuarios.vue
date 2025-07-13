@@ -116,7 +116,8 @@ onUnmounted(() => {
 })
 
 const sortedUsers = computed(() => {
-  return userStore.users.slice().sort((a, b) => {
+  // Garante que userStore.users é um array antes de chamar slice()
+  return (userStore.users || []).slice().sort((a, b) => {
     if (a.status === b.status) return a.displayName.localeCompare(b.displayName)
     if (a.status === 'disponivel') return -1
     return 1

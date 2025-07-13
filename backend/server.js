@@ -4,9 +4,16 @@ const express = require('express');
 const http = require('http');
 const { Server } = require('socket.io');
 const cors = require('cors');
+const admin = require('firebase-admin');
 
 const app = express();
 const server = http.createServer(app);
+
+// Inicializa o Firebase Admin
+admin.initializeApp({
+  credential: admin.credential.applicationDefault(), // ou use sua chave de serviço
+});
+const db = admin.firestore();
 
 // Configuração do CORS mais permissiva para desenvolvimento local e deploy
 const io = new Server(server, {
@@ -48,6 +55,22 @@ app.post('/api/create-session', (req, res) => {
   res.status(201).json({ sessionId });
 });
 
+// Endpoint para atualizar status do usuário
+app.post('/api/update-user-status', async (req, res) => {
+  const { uid, status } = req.body;
+  if (!uid || !status) {
+    return res.status(400).json({ error: 'uid e status são obrigatórios' });
+  }
+  try {
+    await db.collection('usuarios').doc(uid).update({
+      status,
+      lastActive: new Date().toISOString(),
+    });
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
 
 // --- Lógica do Socket.IO ---
 
@@ -151,11 +174,22 @@ io.on('connection', (socket) => {
 
   // --- Lógica de Desconexão ---
 
-  socket.on('disconnect', (reason) => {
+  socket.on('disconnect', async (reason) => {
     console.log(`[DESCONEXÃO] Cliente ${socket.id} (userId: ${userId}) desconectado. Razão: ${reason}`);
     if (session && session.participants.has(userId)) {
       session.participants.delete(userId);
       console.log(`[LEAVE] Usuário ${displayName} (${role}) removido da sessão ${sessionId}`);
+
+      // Atualiza status do usuário para offline no Firestore
+      try {
+        await db.collection('usuarios').doc(userId).update({
+          status: 'offline',
+          lastActive: new Date().toISOString(),
+        });
+        console.log(`[FIRESTORE] Status do usuário ${userId} atualizado para OFFLINE após desconexão.`);
+      } catch (err) {
+        console.error(`[FIRESTORE] Erro ao atualizar status OFFLINE do usuário ${userId}:`, err);
+      }
 
       // Notifica o participante restante
       socket.to(sessionId).emit('SERVER_PARTNER_DISCONNECTED', { 

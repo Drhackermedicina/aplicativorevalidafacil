@@ -2,12 +2,13 @@
   "include": [
     "./vite.config.*",
     "./src/**/*",
+    "./src/**/*.vue",
     "./themeConfig.js"
   ],
   "exclude": [
     "./dist",
     "./node_modules",
-    "src/pages/StationVie1.vue"
+    "./src/pages/ChatView.vue"
   ],
   "compilerOptions": {
     "target": "esnext",

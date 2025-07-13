@@ -32,5 +32,19 @@ service cloud.firestore {
       );
     }
 
+    // Regra para a coleção 'chatMessages'
+    match /chatMessages/{messageId} {
+      // Permite que qualquer usuário autenticado leia e crie mensagens
+      allow read, create: if request.auth != null;
+      // Permite que um usuário autenticado atualize ou delete suas próprias mensagens
+      allow update, delete: if request.auth != null && request.auth.uid == resource.data.senderId;
+    }
+
+    // Regra para coleções de chat privado (chatPrivado_{uid1}_{uid2})
+    match /{chatCollection}/{messageId} {
+      // Só permite se o nome da coleção começar com 'chatPrivado_'
+      allow read, create: if request.auth != null && chatCollection.matches('^chatPrivado_.*');
+      allow update, delete: if request.auth != null && chatCollection.matches('^chatPrivado_.*') && request.auth.uid == resource.data.senderId;
+    }
   }
 }

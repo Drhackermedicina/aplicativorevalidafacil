@@ -1,7 +1,6 @@
 <script setup>
 import { PerfectScrollbar } from 'vue3-perfect-scrollbar'
 import { useDisplay } from 'vuetify'
-import revalidaFacilLogo from '@images/revalidafacillogo.png'
 
 const props = defineProps({
   tag: {
@@ -58,17 +57,11 @@ const handleNavScroll = evt => {
     <div class="nav-header">
       <slot name="nav-header">
         <RouterLink
-          to="/"
+          to="/app/dashboard"
           class="app-logo app-title-wrapper"
         >
-          <img
-      :src="revalidaFacilLogo"
-      alt="Revalida Fácil Logo"
-      style="block-size: 150px;"
-    />
-
           <h1 class="font-weight-medium leading-normal text-xl text-uppercase">
-            REVALIDA FÁCIL
+            Home
           </h1>
         </RouterLink>
       </slot>

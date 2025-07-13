@@ -44,7 +44,10 @@ async function importPEPCorrector() {
     const module = await import('@/utils/pepCorrector.js');
     return {
       validateAndCorrectPEP: module.validateAndCorrectPEP,
-      getPEPStats: module.getPEPStats
+      getPEPStats: module.getPEPStats,
+      adaptarRoteiroAtor: module.adaptarRoteiroAtor,
+      adaptarItensPEP: module.adaptarItensPEP,
+      normalizarPontuacaoTotal: module.normalizarPontuacaoTotal
     };
   } catch (error) {
     console.error('Erro ao importar corretor PEP:', error);
@@ -195,6 +198,12 @@ async function fetchStationToEdit() {
     if (docSnap.exists()) {
       const loadedData = { id: docSnap.id, ...docSnap.data() };
       
+      // Normaliza o PEP, verificando se os itens estão em sinteseEstacao
+      const pep = loadedData.padraoEsperadoProcedimento;
+      if (pep && pep.sinteseEstacao && Array.isArray(pep.sinteseEstacao.itensAvaliacao) && pep.sinteseEstacao.itensAvaliacao.length > 0) {
+        pep.itensAvaliacao = [...pep.sinteseEstacao.itensAvaliacao];
+      }
+
       // Inicializa estruturas aninhadas se não existirem para evitar erros no template
       loadedData.instrucoesParticipante = loadedData.instrucoesParticipante || { cenarioAtendimento: { infraestruturaUnidade: [] }, tarefasPrincipais: [], avisosImportantes: [] };
       loadedData.instrucoesParticipante.cenarioAtendimento = loadedData.instrucoesParticipante.cenarioAtendimento || { infraestruturaUnidade: [] };
@@ -210,7 +219,7 @@ async function fetchStationToEdit() {
       loadedData.padraoEsperadoProcedimento.itensAvaliacao = loadedData.padraoEsperadoProcedimento.itensAvaliacao || [];
 
       // Adapta para padrão Clínica Médica se aplicável
-      adaptarParaClinicaMedicaPadrao(loadedData);
+      await adaptarParaClinicaMedicaPadrao(loadedData);
 
       stationData.value = reactive(JSON.parse(JSON.stringify(loadedData)));
       originalStationData.value = JSON.parse(JSON.stringify(loadedData));
@@ -252,7 +261,7 @@ async function saveStationChanges() {
     await correctPEPScoring();
     
     // Adapta para padrão Clínica Médica antes de salvar
-    adaptarParaClinicaMedicaPadrao(stationData.value);
+    await adaptarParaClinicaMedicaPadrao(stationData.value);
     
     const stationDocRef = doc(db, 'estacoes_clinicas', stationData.value.id);
     
@@ -626,35 +635,97 @@ function cleanRichText(htmlText) {
     .replace(/(<p>&nbsp;<\/p>){2,}/g, '<p>&nbsp;<\/p>');
 }
 
+// Prompt da IA para auto-adaptação
+const promptIA = `Você é um especialista em educação médica e na prova Revalida. Sua tarefa é usar este modelo JSON como um gabarito para converter um caso clínico bruto em uma estação estruturada. Siga TODAS as regras rigorosamente:
+1. Preencha todos os campos marcados com [ ].
+2. No campo tituloEstacao, SEMPRE comece com o prefixo 'REVALIDA FACIL - ' seguido pelo tema central do caso.
+3. Na seção informacoesVerbaisSimulado, detalhe cada item da anamnese de forma granular. Para cada sintoma, antecedente ou hábito, forneça uma resposta específica ou use 'Nega' ou 'Não se aplica'. Separe cada tipo de antecedente (Pessoal, Ginecológico, Familiar, Epidemiológico, etc.) em seu próprio contextoOuPerguntaChave.
+4. Na seção itensAvaliacao, a pontuação 'parcialmenteAdequado' só deve ser aplicada quando o item de avaliação contiver 3 ou mais subtarefas. Para itens mais simples e diretos, use apenas 'adequado' e 'inadequado'.
+5. Adapte os pontos para que a pontuacaoTotalEstacao seja sempre 10.0.
+6. Ao final, adicione a seção feedbackEstacao. Crie um resumoTecnico conciso (máximo 15 linhas) sobre a patologia, focando em pontos-chave de diagnóstico e manejo conforme as diretrizes mais atuais (Ministério da Saúde, sociedades médicas, manuais de referência como Cecil/Harrison). É mandatório citar as fontes utilizadas.
+7. IMPORTANTE: Ao gerar o JSON final da estação, este campo 'promptIA' deve ser completamente removido.`;
+
+// Função para auto-adaptação do roteiro usando IA
+async function autoAdaptActorScript() {
+  const corrector = await importPEPCorrector();
+  if (!corrector) {
+    errorMessage.value = 'Erro ao carregar corretor PEP para auto-adaptação.';
+    return;
+  }
+
+  // Template completo que será usado como base para a adaptação
+  const template = [
+    {
+      contextoOuPerguntaChave: "INSTRUÇÕES DE ATUAÇÃO",
+      informacao: "Comportamento: [Instrução geral de atuação do ator].\nAções Específicas: [Ações físicas a serem realizadas pelo ator]."
+    },
+    {
+      contextoOuPerguntaChave: "IDENTIFICAÇÃO",
+      informacao: "Nome: [Nome]\nIdade: [Idade]\nGênero: [Gênero]\nOcupação: [Ocupação]\nEstado Civil: [Estado Civil]\nNaturalidade: [Naturalidade]\nProcedência: [Procedência]"
+    },
+    {
+      contextoOuPerguntaChave: "QUEIXA PRINCIPAL",
+      informacao: "[Queixa principal em primeira pessoa, com duração]."
+    },
+    {
+      contextoOuPerguntaChave: "HISTÓRIA DA DOENÇA ATUAL (HDA)",
+      informacao: "Sintoma Principal (Ex: DOR):\nInício: [Detalhes]\nLocalização: [Detalhes]\nIrradiação: [Detalhes ou 'Nega']\nCaráter/Tipo: [Detalhes]\nIntensidade: [Detalhes]\nFatores de Melhora/Piora: [Detalhes ou 'Nega']\n\nSintoma Associado (Ex: NÁUSEAS/VÔMITOS):\nInício: [Detalhes]\nFrequência: [Detalhes]\nConteúdo: [Detalhes]"
+    },
+    {
+      contextoOuPerguntaChave: "INTERROGATÓRIO SISTEMÁTICO",
+      informacao: "Geral: [Astenia, Anorexia, Perda Ponderal - Nega/Presente]\nPele/Fâneros: [Nega/Presente]\nCabeça/Pescoço: [Nega/Presente]\nCardiovascular: [Nega/Presente]\nRespiratório: [Nega/Presente]\nGastrointestinal: [Nega/Presente]\nUrinário: [Nega/Presente]\nMúsculo-esquelético: [Nega/Presente]\nNeurológico: [Nega/Presente]"
+    }
+  ];
+
+  if (confirm("Esta ação vai tentar adaptar o conteúdo atual do roteiro para o formato padrão do Revalida. Deseja continuar?")) {
+    // Aqui você implementaria a lógica de integração com a IA usando o template e o promptIA
+    // Por enquanto, apenas mostra a estrutura que será usada
+    console.log("Adaptando conteúdo usando o template:", template);
+    alert("Funcionalidade de auto-adaptação com IA será implementada em breve!");
+  }
+}
+
 // --- Função utilitária para adaptar estação ao padrão de Clínica Médica ---
-function adaptarParaClinicaMedicaPadrao(station) {
+async function adaptarParaClinicaMedicaPadrao(station) {
+  const corrector = await importPEPCorrector();
+  if (!corrector) {
+    console.error('Erro ao carregar corretor PEP para adaptação de Clínica Médica.');
+    return station;
+  }
+
   // 1. Verifica se é Clínica Médica
   if (station.especialidade !== 'Clínica Médica') return station;
 
   // 2. Adapta informacoesVerbaisSimulado
   station.materiaisDisponiveis = station.materiaisDisponiveis || {};
-  station.materiaisDisponiveis.informacoesVerbaisSimulado = adaptarRoteiroAtor(station.materiaisDisponiveis.informacoesVerbaisSimulado);
+  station.materiaisDisponiveis.informacoesVerbaisSimulado = corrector.adaptarRoteiroAtor(station.materiaisDisponiveis.informacoesVerbaisSimulado);
 
   // 3. Adapta itens do PEP
   station.padraoEsperadoProcedimento = station.padraoEsperadoProcedimento || {};
-  station.padraoEsperadoProcedimento.itensAvaliacao = adaptarItensPEP(station.padraoEsperadoProcedimento.itensAvaliacao);
+  station.padraoEsperadoProcedimento.itensAvaliacao = corrector.adaptarItensPEP(station.padraoEsperadoProcedimento.itensAvaliacao);
 
   // 4. Normaliza pontuação total
-  normalizarPontuacaoTotal(station);
+  corrector.normalizarPontuacaoTotal(station);
 
   return station;
 }
 
 // Função para adaptação manual dos itens do PEP ao padrão Clínica Médica
-function adaptarPEPManual() {
+async function adaptarPEPManual() {
   if (!stationData.value || stationData.value.especialidade !== 'Clínica Médica') return;
-  stationData.value.padraoEsperadoProcedimento.itensAvaliacao = adaptarItensPEP(stationData.value.padraoEsperadoProcedimento.itensAvaliacao);
-  normalizarPontuacaoTotal(stationData.value);
+  
+  const corrector = await importPEPCorrector();
+  if (!corrector) {
+    errorMessage.value = 'Erro ao carregar corretor PEP para adaptação manual.';
+    return;
+  }
+
+  stationData.value.padraoEsperadoProcedimento.itensAvaliacao = corrector.adaptarItensPEP(stationData.value.padraoEsperadoProcedimento.itensAvaliacao);
+  corrector.normalizarPontuacaoTotal(stationData.value);
   successMessage.value = 'Itens do PEP adaptados ao padrão Clínica Médica!';
   setTimeout(() => { successMessage.value = ''; }, 3000);
 }
 
-// --- Integração: chama a função ao carregar e salvar ---
 onMounted(() => {
   // O watch com immediate: true já chama fetchStationToEdit na montagem se route.params.id estiver presente
 });
@@ -995,6 +1066,7 @@ function goToEditStation(stationId) {
                       <tbody>
                         <tr v-for="(item, index) in pepStats.items" :key="item.id">
                           <td>{{ index + 1 }}</td>
+                          <td>{{ item.category }}</td>
                           <td>{{ item.adequado.toFixed(2) }}</td>
                           <td>{{ item.parcial.toFixed(2) }}</td>
                           <td>{{ item.inadequado.toFixed(2) }}</td>

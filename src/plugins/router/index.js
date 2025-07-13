@@ -88,10 +88,10 @@ router.afterEach(async (to, from) => {
 
 window.addEventListener('beforeunload', () => {
   if (currentUser.value?.uid) {
-    const db = getFirestore()
-    const ref = doc(db, 'usuarios', currentUser.value.uid)
+    const db = getFirestore();
+    const ref = doc(db, 'usuarios', currentUser.value.uid);
     // Não pode usar await aqui, pois beforeunload não espera Promises
-    updateDoc(ref, { status: 'offline' })
+    updateDoc(ref, { status: 'offline' });
   }
 })
 

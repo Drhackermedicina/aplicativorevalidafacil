@@ -18,10 +18,17 @@ const isOpen = ref(false)
       class="nav-group-label"
       @click="isOpen = !isOpen"
     >
-      <VIcon
-        :icon="item.icon || 'ri-checkbox-blank-circle-line'"
-        class="nav-item-icon"
-      />
+      <VTooltip location="right">
+        <template #activator="{ props }">
+          <VIcon
+            v-bind="props"
+            :icon="item.icon || 'ri-checkbox-blank-circle-line'"
+            class="nav-item-icon"
+            :color="item.iconColor || undefined"
+          />
+        </template>
+        {{ item.title }}
+      </VTooltip>
       <span class="nav-item-title">{{ item.title }}</span>
       <span
         class="nav-item-badge"

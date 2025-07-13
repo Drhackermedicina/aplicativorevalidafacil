@@ -6,7 +6,6 @@ import VerticalNavLayout from '@layouts/components/VerticalNavLayout.vue'
 import Footer from '@/layouts/components/Footer.vue'
 import NavbarThemeSwitcher from '@/layouts/components/NavbarThemeSwitcher.vue'
 import UserProfile from '@/layouts/components/UserProfile.vue'
-import revalidaFacilLogo from '@images/revalidafacillogo.png'
 
 // Função exemplo para abrir Google Meet
 function openGoogleMeet() {
@@ -24,30 +23,27 @@ function openGeminiIA() {
     <template #navbar="{ toggleVerticalOverlayNavActive }">
       <div class="d-flex h-100 align-center w-100 justify-space-between">
         <!-- Menu hamburguer mobile -->
-        <IconBtn
-          class="ms-n3 d-lg-none"
-          @click="toggleVerticalOverlayNavActive(true)"
-        >
-          <VIcon icon="ri-menu-line" />
-        </IconBtn>
+        <VTooltip location="right">
+          <template #activator="{ props }">
+            <IconBtn
+              class="ms-n3 d-lg-none"
+              @click="toggleVerticalOverlayNavActive(true)"
+              v-bind="props"
+            >
+              <VIcon icon="ri-menu-line" />
+            </IconBtn>
+          </template>
+          Abrir menu
+        </VTooltip>
 
-        <!-- Centralizado: Botão Google Meet e Gemini IA -->
+        <!-- Centralizado: Apenas Gemini IA com imagem -->
         <div class="d-flex align-center justify-center flex-grow-1">
-          <v-btn
-            color="primary"
-            class="mx-2"
-            style="font-weight: bold;"
-            @click="openGoogleMeet"
-          >
-            <VIcon left icon="bxl-google" style="color: #34a853; font-size: 1.5rem;" />
-            Google Meet
-          </v-btn>
           <v-btn
             class="mx-2 gemini-btn"
             style="border: none; background: linear-gradient(90deg, #7b1fa2 0%, #00bcd4 100%); color: #fff; font-weight: bold; letter-spacing: 0.5px; text-shadow: 0 1px 4px #000, 0 0 2px #00bcd4;"
             @click="openGeminiIA"
           >
-            <VIcon left icon="ri-sparkling-2-line" style="color: #fff; filter: drop-shadow(0 0 4px #00bcd4); font-size: 1.5rem;" />
+            <img src="/src/assets/images/svg/google-gemini-icon.webp" alt="Gemini IA" style="height: 28px; width: 28px; margin-right: 10px; border-radius: 50%; box-shadow: 0 0 8px #00bcd4; background: #fff;" />
             <span class="gemini-label">Gemini IA</span>
           </v-btn>
         </div>
@@ -68,27 +64,22 @@ function openGeminiIA() {
     </template>
 
     <template #vertical-nav-header="{ toggleIsOverlayNavActive }">
-      <RouterLink
-        to="/"
-        class="app-logo app-title-wrapper"
-      >
-        <img
-          :src="revalidaFacilLogo"
-          alt="Revalida Fácil Logo"
-          style="block-size: 50px;"
-        >
-
-        <h1 class="font-weight-medium leading-normal text-xl text-uppercase">
-          REVALIDA FÁCIL
-        </h1>
-      </RouterLink>
-
-      <IconBtn
-        class="d-block d-lg-none"
-        @click="toggleIsOverlayNavActive(false)"
-      >
-        <VIcon icon="ri-close-line" />
-      </IconBtn>
+      <div class="sidebar-header-modern d-flex align-center justify-center py-4">
+        <VIcon icon="ri-shield-star-fill" color="#7b1fa2" size="32" class="me-2" />
+        <span class="sidebar-title">Revalida Fácil</span>
+        <VTooltip location="right">
+          <template #activator="{ props }">
+            <IconBtn
+              class="d-block d-lg-none ms-2"
+              @click="toggleIsOverlayNavActive(false)"
+              v-bind="props"
+            >
+              <VIcon icon="ri-close-line" />
+            </IconBtn>
+          </template>
+          Fechar menu
+        </VTooltip>
+      </div>
     </template>
 
     <template #vertical-nav-content>
@@ -141,6 +132,19 @@ function openGeminiIA() {
   color: #fff !important;
   font-weight: 700;
   letter-spacing: 0.5px;
+  text-shadow: 0 1px 4px #000, 0 0 2px #00bcd4;
+}
+
+.sidebar-header-modern {
+  background: linear-gradient(90deg, #7b1fa2 0%, #00bcd4 100%);
+  border-radius: 0 0 16px 16px;
+  box-shadow: 0 2px 8px 0 rgba(123, 31, 162, 0.10);
+}
+.sidebar-title {
+  color: #fff;
+  font-size: 1.3rem;
+  font-weight: 700;
+  letter-spacing: 1px;
   text-shadow: 0 1px 4px #000, 0 0 2px #00bcd4;
 }
 </style>

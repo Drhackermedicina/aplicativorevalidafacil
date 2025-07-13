@@ -1,6 +1,6 @@
 <script setup>
 // Imports
-import StationEditor from '@/components/StationEditor.vue';
+
 import { currentUser } from '@/plugins/auth.js';
 import { db } from '@/plugins/firebase.js';
 import { registrarConclusaoEstacao } from '@/services/stationEvaluationService.js';
@@ -165,30 +165,7 @@ const isCandidate = computed(() => userRole.value === 'candidate');
 const inviteLinkToShow = ref('');
 const copySuccess = ref(false);
 
-// Admin Edit Dialog
-const isEditDialogVisible = ref(false);
 
-const isAdmin = computed(() => {
-  return currentUser.value && (
-    currentUser.value.uid === 'KiSITAxXMAY5uU3bOPW5JMQPent2' ||
-    currentUser.value.uid === 'RtfNENOqMUdw7pvgeeaBVSuin662' ||
-    currentUser.value.uid === 'UD7S8aiyR8TJXHyxdw29BHNfjEf1'
-  );
-});
-
-function openEditDialog() {
-  if (isAdmin.value) {
-    isEditDialogVisible.value = true;
-  }
-}
-
-function handleStationSaved() {
-  isEditDialogVisible.value = false;
-  // Re-fetch data to show updated content
-  if (stationId.value) {
-    fetchSimulationData(stationId.value);
-  }
-}
 
 // Refs para estado de prontidão e controle da simulação
 const myReadyState = ref(false);
@@ -280,7 +257,21 @@ async function fetchSimulationData(currentStationId) {
     if (!stationSnap.exists()) { throw new Error(`Estação ${currentStationId} não encontrada.`); }
     stationData.value = { id: stationSnap.id, ...stationSnap.data() };
     console.log("FETCH: Estação Carregada:", stationData.value?.tituloEstacao);
-
+    // --- NOVO: Normaliza o checklistData ---
+    let pep = stationData.value?.padraoEsperadoProcedimento;
+    if (pep) {
+      if (Array.isArray(pep.itensAvaliacao) && pep.itensAvaliacao.length > 0) {
+        checklistData.value = pep;
+      } else if (pep.sinteseEstacao && Array.isArray(pep.sinteseEstacao.itensAvaliacao) && pep.sinteseEstacao.itensAvaliacao.length > 0) {
+        pep.itensAvaliacao = pep.sinteseEstacao.itensAvaliacao;
+        checklistData.value = pep;
+      } else {
+        checklistData.value = null;
+        console.warn("FETCH: PEP não contém 'itensAvaliacao' válidos nem em sinteseEstacao.");
+      }
+    } else {
+      checklistData.value = null;
+    }
     const durationFromQuery = route.query.duration ? parseInt(route.query.duration) : null;
     const validOptions = [5, 6, 7, 8, 9, 10];
 
@@ -1367,6 +1358,9 @@ function getInfrastructureColor(infraItem) {
 }
 
 // Função Adicionada: divide o texto em parágrafos para exibição
+
+
+
 function splitIntoParagraphs(text) {
   if (!text) return [];
   
@@ -1561,9 +1555,7 @@ function processInfrastructureItems(items) {
 
             <!-- Timer e Controles (Visão Ator/Avaliador) -->
             <div v-if="isActorOrEvaluator" class="d-flex align-center gap-3">
-              <VBtn v-if="isAdmin" @click="openEditDialog" color="secondary" prepend-icon="ri-pencil-line">
-                Editar Estação
-              </VBtn>
+              
               <div v-if="!simulationStarted && !simulationEnded" style="width: 150px;">
                 <VSelect
                   v-model="selectedDurationMinutes"
@@ -1739,6 +1731,17 @@ function processInfrastructureItems(items) {
                     <ul class="tasks-list pl-5">
                         <li v-for="(tarefa, i) in stationData.instrucoesParticipante.tarefasPrincipais" :key="`actor-task-${i}`" v-html="tarefa"></li>
                     </ul>
+                </VCardText>
+            </VCard>
+            <VCard class="mb-6" v-else>
+                <VCardItem>
+                    <template #prepend>
+                        <VIcon icon="ri-task-line" color="grey" />
+                    </template>
+                    <VCardTitle>Tarefas do Candidato</VCardTitle>
+                </VCardItem>
+                <VCardText>
+                    <p class="text-body-1">Nenhuma tarefa específica foi definida para esta estação.</p>
                 </VCardText>
             </VCard>
 
@@ -2371,24 +2374,8 @@ function processInfrastructureItems(items) {
       {{ notificationMessage }}
     </VSnackbar>
 
-    <!-- Admin Edit Dialog -->
-    <VDialog v-model="isEditDialogVisible" fullscreen :scrim="false" transition="dialog-bottom-transition">
-      <VCard>
-        <VToolbar dark color="primary">
-          <VBtn icon dark @click="isEditDialogVisible = false">
-            <VIcon icon="ri-close-line" />
-          </VBtn>
-          <VToolbarTitle>Editar Estação</VToolbarTitle>
-          <VSpacer />
-        </VToolbar>
-        <StationEditor 
-          v-if="isEditDialogVisible && stationId"
-          :station-id="stationId" 
-          @station-saved="handleStationSaved"
-          @close="isEditDialogVisible = false"
-        />
-      </VCard>
-    </VDialog>
+    
+    
   </div>
 </template>
 
