@@ -510,6 +510,10 @@ function removerFocoPrincipalPEP(index) {
   }
 }
 
+// Refs para controle de posição ao adicionar item
+const showPositionDialog = ref(false);
+const newItemPosition = ref(null);
+
 function adicionarItemAvaliacaoPEP() {
   const novoItem = {
     idItem: `itempep_${Date.now()}_${formData.value.padraoEsperadoProcedimento.itensAvaliacao.length + 1}`,
@@ -521,12 +525,69 @@ function adicionarItemAvaliacaoPEP() {
       inadequado: { criterio: 'Não realizou ou realizou incorretamente.', pontos: 0 }
     }
   };
-  formData.value.padraoEsperadoProcedimento.itensAvaliacao.push(novoItem);
+  
+  // Se há mais de um item, perguntar onde inserir
+  if (formData.value.padraoEsperadoProcedimento.itensAvaliacao.length > 0) {
+    newItemPosition.value = novoItem;
+    showPositionDialog.value = true;
+  } else {
+    formData.value.padraoEsperadoProcedimento.itensAvaliacao.push(novoItem);
+  }
+}
+
+function adicionarItemNaPosicao(posicao) {
+  if (newItemPosition.value) {
+    if (posicao === 'fim') {
+      formData.value.padraoEsperadoProcedimento.itensAvaliacao.push(newItemPosition.value);
+    } else {
+      const index = parseInt(posicao) - 1; // Converte posição 1-based para index 0-based
+      formData.value.padraoEsperadoProcedimento.itensAvaliacao.splice(index, 0, newItemPosition.value);
+    }
+    
+    // Reset dialog
+    newItemPosition.value = null;
+    showPositionDialog.value = false;
+  }
+}
+
+function cancelarAdicaoItem() {
+  newItemPosition.value = null;
+  showPositionDialog.value = false;
 }
 
 function removerItemAvaliacaoPEP(index) {
   if (formData.value.padraoEsperadoProcedimento.itensAvaliacao.length > 1) {
     formData.value.padraoEsperadoProcedimento.itensAvaliacao.splice(index, 1);
+  }
+}
+
+// Funções de reordenação
+function moverItemPEPParaCima(index) {
+  if (index > 0) {
+    const itens = formData.value.padraoEsperadoProcedimento.itensAvaliacao;
+    const item = itens[index];
+    itens.splice(index, 1);
+    itens.splice(index - 1, 0, item);
+  }
+}
+
+function moverItemPEPParaBaixo(index) {
+  const itens = formData.value.padraoEsperadoProcedimento.itensAvaliacao;
+  if (index < itens.length - 1) {
+    const item = itens[index];
+    itens.splice(index, 1);
+    itens.splice(index + 1, 0, item);
+  }
+}
+
+function moverItemPEPParaPosicao(index, novaPosicao) {
+  const itens = formData.value.padraoEsperadoProcedimento.itensAvaliacao;
+  const novoIndex = parseInt(novaPosicao) - 1; // Converte posição 1-based para index 0-based
+  
+  if (novoIndex >= 0 && novoIndex < itens.length && novoIndex !== index) {
+    const item = itens[index];
+    itens.splice(index, 1);
+    itens.splice(novoIndex, 0, item);
   }
 }
 
@@ -544,7 +605,8 @@ watch(() => route.params.id, (newId) => {
 </script>
 
 <template>
-  <div class="admin-upload-page">
+  <div class="edit-station-container">
+    <div class="admin-upload-page">
     <div class="d-flex justify-space-between align-center mb-4">
       <button @click="router.push('/app/station-list')" class="back-button">
         ← Voltar para Lista
@@ -695,7 +757,10 @@ watch(() => route.params.id, (newId) => {
             </div>
             <div v-if="impresso.tipoConteudo === 'lista_chave_valor_secoes'">
               <div v-for="(secao, secaoIndex) in impresso.conteudo.secoes" :key="secaoIndex" class="dynamic-item-group-nested">
-                <h5>Seção {{ secaoIndex + 1 }}</h5>
+                <div class="secao-header">
+                  <h5>Seção {{ secaoIndex + 1 }}</h5>
+                  <button type="button" @click="impresso.conteudo.secoes.splice(secaoIndex, 1)" class="remove-item-button-header">Remover Seção</button>
+                </div>
                 <div class="form-group">
                   <label :for="'secaoTitulo' + index + '_' + secaoIndex">Título da Seção:</label>
                   <input type="text" :id="'secaoTitulo' + index + '_' + secaoIndex" v-model="secao.tituloSecao" placeholder="Ex: Hemograma">
@@ -706,9 +771,8 @@ watch(() => route.params.id, (newId) => {
                   <button type="button" @click="secao.itens.splice(itemSecaoIndex, 1)" class="remove-item-button-small" style="flex-basis: auto;">X</button>
                 </div>
                 <button type="button" @click="secao.itens.push({chave: '', valor: ''})" class="add-item-button-small">+ Item na Seção</button>
-                <button type="button" @click="impresso.conteudo.secoes.splice(secaoIndex, 1)" class="remove-item-button" style="margin-top: 5px; float: right;">Remover Seção</button>
               </div>
-              <button type="button" @click="impresso.conteudo.secoes.push({tituloSecao: '', itens: [{chave:'', valor:''}]})" class="add-item-button" style="clear:both; display:block;">+ Seção no Impresso</button>
+              <button type="button" @click="impresso.conteudo.secoes.push({tituloSecao: '', itens: [{chave:'', valor:''}]})" class="add-item-button">+ Seção no Impresso</button>
             </div>
             <button type="button" @click="removerImpresso(index)" class="remove-item-button">Remover Impresso</button>
           </div>
@@ -736,7 +800,43 @@ watch(() => route.params.id, (newId) => {
 
           <h5>Itens de Avaliação do PEP</h5>
           <div v-for="(item, index) in formData.padraoEsperadoProcedimento.itensAvaliacao" :key="item.idItem" class="dynamic-item-group pep-item">
-            <h6>Item de Avaliação {{ index + 1 }}</h6>
+            <div class="pep-item-header">
+              <h6>Item de Avaliação {{ index + 1 }}</h6>
+              <div class="pep-controls">
+                <div class="position-controls">
+                  <label for="'posicaoItem' + index" class="position-label">Posição:</label>
+                  <select 
+                    :id="'posicaoItem' + index" 
+                    :value="index + 1" 
+                    @change="moverItemPEPParaPosicao(index, $event.target.value)"
+                    class="position-select"
+                  >
+                    <option v-for="pos in formData.padraoEsperadoProcedimento.itensAvaliacao.length" :key="pos" :value="pos">{{ pos }}</option>
+                  </select>
+                </div>
+                <div class="move-buttons">
+                  <button 
+                    type="button" 
+                    @click="moverItemPEPParaCima(index)" 
+                    :disabled="index === 0"
+                    class="move-button move-up"
+                    title="Mover para cima"
+                  >
+                    ↑
+                  </button>
+                  <button 
+                    type="button" 
+                    @click="moverItemPEPParaBaixo(index)" 
+                    :disabled="index === formData.padraoEsperadoProcedimento.itensAvaliacao.length - 1"
+                    class="move-button move-down"
+                    title="Mover para baixo"
+                  >
+                    ↓
+                  </button>
+                </div>
+                <button type="button" @click="removerItemAvaliacaoPEP(index)" class="remove-item-button-header">Remover Item</button>
+              </div>
+            </div>
             <div class="form-group">
               <label :for="'pepItemId' + index">ID do Item (único no checklist, ex: anamnese_dor):</label>
               <input type="text" :id="'pepItemId' + index" v-model="item.idItem" required>
@@ -770,7 +870,6 @@ watch(() => route.params.id, (newId) => {
                 <input type="number" step="0.01" :id="'pepItemInadequadoPontos' + index" v-model.number="item.pontuacoes.inadequado.pontos">
               </div>
             </fieldset>
-            <button type="button" @click="removerItemAvaliacaoPEP(index)" class="remove-item-button">Remover Item de Avaliação</button>
           </div>
           <button type="button" @click="adicionarItemAvaliacaoPEP" class="add-item-button">+ Adicionar Item de Avaliação</button>
 
@@ -783,10 +882,43 @@ watch(() => route.params.id, (newId) => {
 
           <button type="submit" :disabled="isSaving" class="save-manual-button">
             <span v-if="isSaving">Salvando Alterações...</span>
-            <span v-else">Salvar Alterações da Estação</span>
+            <span v-else>Salvar Alterações da Estação</span>
           </button>
         </form>
       </div>
+    </div>
+  </div>
+
+  <!-- Dialog para escolher posição do novo item -->
+  <div v-if="showPositionDialog" class="dialog-overlay" @click="cancelarAdicaoItem">
+    <div class="dialog-content" @click.stop>
+      <h3>Escolher Posição do Novo Item</h3>
+      <p>Onde você deseja inserir o novo item de avaliação?</p>
+      
+      <div class="position-options">
+        <div v-for="(item, index) in formData.padraoEsperadoProcedimento.itensAvaliacao" :key="'pos-' + index" class="position-option">
+          <button 
+            type="button" 
+            @click="adicionarItemNaPosicao(index + 1)"
+            class="position-button"
+          >
+            Posição {{ index + 1 }} (antes de: "{{ item.descricaoItem || 'Item ' + (index + 1) }}")
+          </button>
+        </div>
+        
+        <button 
+          type="button" 
+          @click="adicionarItemNaPosicao('fim')"
+          class="position-button position-end"
+        >
+          No final (Posição {{ formData.padraoEsperadoProcedimento.itensAvaliacao.length + 1 }})
+        </button>
+      </div>
+      
+      <div class="dialog-actions">
+        <button type="button" @click="cancelarAdicaoItem" class="cancel-button">Cancelar</button>
+      </div>
+    </div>
     </div>
   </div>
 </template>
@@ -1174,5 +1306,229 @@ watch(() => route.params.id, (newId) => {
   background-color: #fff1f0; 
   color: #cf1322; 
   border-color: #ffa39e; 
+}
+
+/* Estilos para controles de reordenação */
+.pep-item-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 15px;
+  padding-bottom: 10px;
+  border-bottom: 2px solid #e9ecef;
+}
+
+.pep-controls {
+  display: flex;
+  align-items: center;
+  gap: 15px;
+}
+
+.position-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.position-label {
+  font-size: 14px;
+  font-weight: 500;
+  margin: 0;
+  color: #495057;
+}
+
+.position-select {
+  padding: 5px 8px;
+  border: 1px solid #ced4da;
+  border-radius: 4px;
+  font-size: 14px;
+  background-color: white;
+  min-width: 60px;
+}
+
+.position-select:focus {
+  outline: none;
+  border-color: #007bff;
+  box-shadow: 0 0 0 2px rgba(0, 123, 255, 0.25);
+}
+
+.move-buttons {
+  display: flex;
+  gap: 5px;
+}
+
+.move-button {
+  width: 32px;
+  height: 32px;
+  border: 1px solid #dee2e6;
+  background-color: #f8f9fa;
+  border-radius: 4px;
+  font-size: 16px;
+  font-weight: bold;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s ease;
+}
+
+.move-button:hover:not(:disabled) {
+  background-color: #e9ecef;
+  border-color: #adb5bd;
+}
+
+.move-button:disabled {
+  background-color: #e9ecef;
+  color: #6c757d;
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.move-button.move-up {
+  color: #28a745;
+}
+
+.move-button.move-down {
+  color: #dc3545;
+}
+
+/* Estilos para o dialog de posição */
+.dialog-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background-color: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+
+.dialog-content {
+  background-color: white;
+  border-radius: 8px;
+  padding: 24px;
+  max-width: 500px;
+  width: 90%;
+  max-height: 80vh;
+  overflow-y: auto;
+  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.2);
+}
+
+.dialog-content h3 {
+  margin: 0 0 16px 0;
+  color: #2c3e50;
+  font-size: 20px;
+}
+
+.dialog-content p {
+  margin: 0 0 20px 0;
+  color: #6c757d;
+}
+
+.position-options {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 20px;
+}
+
+.position-option {
+  width: 100%;
+}
+
+.position-button {
+  width: 100%;
+  padding: 12px 16px;
+  border: 1px solid #dee2e6;
+  background-color: #f8f9fa;
+  border-radius: 6px;
+  font-size: 14px;
+  text-align: left;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.position-button:hover {
+  background-color: #e9ecef;
+  border-color: #007bff;
+}
+
+.position-button.position-end {
+  background-color: #e3f2fd;
+  border-color: #2196f3;
+  color: #1976d2;
+  font-weight: 500;
+}
+
+.position-button.position-end:hover {
+  background-color: #bbdefb;
+}
+
+.dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 20px;
+  padding-top: 16px;
+  border-top: 1px solid #dee2e6;
+}
+
+.cancel-button {
+  padding: 8px 16px;
+  border: 1px solid #6c757d;
+  background-color: transparent;
+  color: #6c757d;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 14px;
+  transition: all 0.2s ease;
+}
+
+.cancel-button:hover {
+  background-color: #6c757d;
+  color: white;
+}
+
+/* Estilos para header das seções */
+.secao-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 15px;
+  padding: 10px;
+  background-color: #f8f9fa;
+  border-radius: 6px;
+  border: 1px solid #dee2e6;
+}
+
+.secao-header h5 {
+  margin: 0;
+  color: #495057;
+  font-weight: 600;
+}
+
+.remove-item-button-header {
+  padding: 6px 12px;
+  border: 1px solid #dc3545;
+  background-color: #dc3545;
+  color: white;
+  border-radius: 4px;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.remove-item-button-header:hover {
+  background-color: #c82333;
+  border-color: #bd2130;
+  transform: translateY(-1px);
+}
+
+.remove-item-button-header:active {
+  transform: translateY(0);
 }
 </style>

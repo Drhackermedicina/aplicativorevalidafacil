@@ -1911,7 +1911,7 @@ function processInfrastructureItems(items) {
                           </div>
                         </div>
                         
-                        <div v-if="item.pontuacoes?.parcialmenteAdequado" class="criterio-item warning--text mb-2">
+                        <div v-if="item.pontuacoes?.parcialmenteAdequado && item.pontuacoes.parcialmenteAdequado.criterio && item.pontuacoes.parcialmenteAdequado.criterio.trim() !== '' && item.pontuacoes.parcialmenteAdequado.pontos > 0" class="criterio-item warning--text mb-2">
                           <div class="d-flex align-start">
                             <VIcon icon="ri-checkbox-indeterminate-fill" color="warning" size="small" class="me-2 mt-1" />
                             <div>
@@ -1935,7 +1935,7 @@ function processInfrastructureItems(items) {
                     <td class="text-center">
                       <VRadioGroup v-model="evaluationScores[item.idItem]" :disabled="!simulationStarted" :inline="false">
                         <VRadio v-if="item.pontuacoes?.adequado" :label="`Adequado`" :value="item.pontuacoes.adequado.pontos" density="compact" color="success" />
-                        <VRadio v-if="item.pontuacoes?.parcialmenteAdequado" :label="`Parc. Adequado`" :value="item.pontuacoes.parcialmenteAdequado.pontos" density="compact" color="warning" />
+                        <VRadio v-if="item.pontuacoes?.parcialmenteAdequado && item.pontuacoes.parcialmenteAdequado.criterio && item.pontuacoes.parcialmenteAdequado.criterio.trim() !== '' && item.pontuacoes.parcialmenteAdequado.pontos > 0" :label="`Parc. Adequado`" :value="item.pontuacoes.parcialmenteAdequado.pontos" density="compact" color="warning" />
                         <VRadio v-if="item.pontuacoes?.inadequado" :label="`Inadequado`" :value="item.pontuacoes.inadequado.pontos" density="compact" color="error" />
                       </VRadioGroup>
                     </td>
@@ -2190,7 +2190,7 @@ function processInfrastructureItems(items) {
                                     </div>
                                   </div>
                                   
-                                  <div v-if="item.pontuacoes?.parcialmenteAdequado" 
+                                  <div v-if="item.pontuacoes?.parcialmenteAdequado && item.pontuacoes.parcialmenteAdequado.criterio && item.pontuacoes.parcialmenteAdequado.criterio.trim() !== '' && item.pontuacoes.parcialmenteAdequado.pontos > 0" 
                                     :class="{'criterio-item': true, 'criterio-selecionado': candidateReceivedScores[item.idItem] === item.pontuacoes.parcialmenteAdequado.pontos, 'mb-2': true}">
                                     <div class="d-flex align-start">
                                       <VIcon 
