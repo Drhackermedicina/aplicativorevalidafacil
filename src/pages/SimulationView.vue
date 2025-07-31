@@ -299,14 +299,16 @@ async function fetchSimulationData(currentStationId) {
     if (stationData.value?.padraoEsperadoProcedimento) {
       checklistData.value = stationData.value.padraoEsperadoProcedimento;
       
-      // Adiciona feedbackEstacao da estação ao checklistData se não existir
+      // Verifica feedbackEstacao em diferentes locais (estação raiz ou dentro do PEP)
       if (stationData.value.feedbackEstacao && !checklistData.value.feedbackEstacao) {
         checklistData.value.feedbackEstacao = stationData.value.feedbackEstacao;
-        console.log("FEEDBACK: feedbackEstacao carregado da estação:", stationData.value.feedbackEstacao);
+        console.log("FEEDBACK: feedbackEstacao carregado da raiz da estação:", stationData.value.feedbackEstacao);
       } else if (checklistData.value.feedbackEstacao) {
         console.log("FEEDBACK: feedbackEstacao já presente no PEP:", checklistData.value.feedbackEstacao);
       } else {
         console.log("FEEDBACK: Nenhum feedbackEstacao encontrado na estação ou PEP");
+        console.log("FEEDBACK: Estrutura da estação:", Object.keys(stationData.value));
+        console.log("FEEDBACK: Estrutura do PEP:", Object.keys(checklistData.value));
       }
       
       if (!checklistData.value.itensAvaliacao || !Array.isArray(checklistData.value.itensAvaliacao) || checklistData.value.itensAvaliacao.length === 0) {
