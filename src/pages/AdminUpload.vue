@@ -126,25 +126,6 @@ function validarEstruturaEstacao(estacao) {
   return true;
 }
 
-function normalizarPEP(estacao) {
-  if (!estacao.padraoEsperadoProcedimento) return;
-  // Remove promptIA se existir
-  if (estacao.promptIA) delete estacao.promptIA;
-  // Se itensAvaliacao estiver em sinteseEstacao, move para o local correto
-  if (
-    estacao.padraoEsperadoProcedimento.sinteseEstacao &&
-    Array.isArray(estacao.padraoEsperadoProcedimento.sinteseEstacao.itensAvaliacao)
-  ) {
-    estacao.padraoEsperadoProcedimento.itensAvaliacao = estacao.padraoEsperadoProcedimento.sinteseEstacao.itensAvaliacao;
-    delete estacao.padraoEsperadoProcedimento.sinteseEstacao.itensAvaliacao;
-  }
-  // Garante que itensAvaliacao seja array
-  if (!Array.isArray(estacao.padraoEsperadoProcedimento.itensAvaliacao)) {
-    estacao.padraoEsperadoProcedimento.itensAvaliacao = [];
-  }
-}
-
-// Chame normalizarPEP antes de salvar
 async function processarEstacaoDoJson() {
   if (!estacaoCarregadaDoJson.value) {
     mensagemStatusUpload.value = "Nenhum JSON carregado para processar.";
@@ -162,8 +143,6 @@ async function processarEstacaoDoJson() {
     estaProcessandoUpload.value = false;
     return;
   }
-  // --- NOVO: Normaliza o PEP ---
-  normalizarPEP(estacaoCarregadaDoJson.value);
 
   const stationTitleForMessage = estacaoCarregadaDoJson.value.tituloEstacao || estacaoCarregadaDoJson.value.idEstacao || "Estação sem título/ID";
   mensagemStatusUpload.value = `Validado. Salvando "${stationTitleForMessage}" no Firestore...`;
@@ -473,6 +452,7 @@ function construirObjetoEstacao() {
     tempoDuracaoMinutos: parseInt(formNovaEstacao.value.tempoDuracaoMinutos, 10) || 10,
     palavrasChave: formNovaEstacao.value.palavrasChave.split(',').map(kw => kw.trim()).filter(kw => kw),
     nivelDificuldade: formNovaEstacao.value.nivelDificuldade,
+    origem: 'REVALIDA_FACIL', // Campo necessário para filtros de exibição
 
     instrucoesParticipante: {
       cenarioAtendimento: {
@@ -596,7 +576,11 @@ async function salvarEstacaoManualmente() {
     const dadosParaSalvarManual = {
       ...novaEstacaoObjeto,
       criadoEmTimestamp: serverTimestamp(),
-      atualizadoEmTimestamp: serverTimestamp()
+      atualizadoEmTimestamp: serverTimestamp(),
+      // Adicionar campos necessários para integração
+      mediaNotas: 0,
+      totalAvaliacoes: 0,
+      usuariosQueConcluíram: []
     };
 
     const docRef = await addDoc(estacoesColRef, dadosParaSalvarManual);

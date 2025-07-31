@@ -77,7 +77,7 @@ const isAdmin = computed(() => {
   return currentUser.value && (
     currentUser.value.uid === 'KiSITAxXMAY5uU3bOPW5JMQPent2' ||
     currentUser.value.uid === 'RtfNENOqMUdw7pvgeeaBVSuin662' ||
-    currentUser.value.uid === 'UD7S8aiyR8TJXHyxdw29BHNfjEf1'
+    currentUser.value.uid === 'lNwhdYgMwLhS1ZyufRzw9xLD10y1'
   );
 });
 

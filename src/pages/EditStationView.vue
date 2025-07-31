@@ -1,309 +1,459 @@
 <script setup>
-// Vamos verificar se este composable existe ou criar um básico
-// Altere de:
-// import { useSnackbar } from '@/composables/useSnackbar';
-
-// Para uma versão local temporária:
-const showSnackbar = (message, color = 'primary') => {
-  console.log(`Snackbar: ${message} (${color})`);
-  // Aqui podemos usar a API de snackbar do Vuetify diretamente
-  // ou implementar uma versão simples
-};
-
-import TiptapEditor from '@/components/TiptapEditor.vue';
-import { currentUser } from '@/plugins/auth.js';
-import { db } from '@/plugins/firebase.js';
-import { pepStandardLibrary } from '@/utils/pepCorrector.js';
-import { deleteDoc, doc, getDoc, updateDoc } from 'firebase/firestore';
-import { computed, onMounted, reactive, ref, watch } from 'vue';
+import { computed, ref, watch, onMounted } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
+import { db } from '@/plugins/firebase.js';
+import { doc, getDoc, updateDoc, deleteDoc, serverTimestamp } from 'firebase/firestore';
+import { currentUser } from '@/plugins/auth.js';
 
 const route = useRoute();
 const router = useRouter();
 
-const stationId = ref(null); // Será definido pelo parâmetro da rota
-const stationData = ref(null); // Cópia editável dos dados da estação
-const originalStationData = ref(null); // Cópia original para comparação/reversão
-
+const stationId = ref(null);
 const isLoading = ref(true);
 const errorMessage = ref('');
 const successMessage = ref('');
+const isSaving = ref(false);
 
-// Variáveis para estatísticas PEP
-const pepStats = ref({
-  totalScore: 0,
-  itemCount: 0,
-  isValid: false,
-  maxPossible: 0,
-  items: []
-});
-
-// Função para importar dinamicamente as funções do corretor PEP
-async function importPEPCorrector() {
-  try {
-    const module = await import('@/utils/pepCorrector.js');
-    return {
-      validateAndCorrectPEP: module.validateAndCorrectPEP,
-      getPEPStats: module.getPEPStats,
-      adaptarRoteiroAtor: module.adaptarRoteiroAtor,
-      adaptarItensPEP: module.adaptarItensPEP,
-      normalizarPontuacaoTotal: module.normalizarPontuacaoTotal
-    };
-  } catch (error) {
-    console.error('Erro ao importar corretor PEP:', error);
-    return null;
-  }
-}
-
-// Função para atualizar estatísticas PEP
-async function updatePEPStats() {
-  if (!stationData.value) return;
-  
-  const corrector = await importPEPCorrector();
-  if (!corrector) return;
-  
-  const stats = corrector.getPEPStats(stationData.value);
-  pepStats.value = stats;
-}
-
-// Função para corrigir pontuação PEP automaticamente
-async function correctPEPScoring() {
-  if (!stationData.value) return;
-  
-  const corrector = await importPEPCorrector();
-  if (!corrector) {
-    errorMessage.value = 'Erro ao carregar corretor PEP';
-    return;
-  }
-  
-  try {
-    const correctedStation = corrector.validateAndCorrectPEP(stationData.value);
-    
-    // Atualiza os dados reativos
-    Object.assign(stationData.value, correctedStation);
-    
-    // Atualiza estatísticas
-    await updatePEPStats();
-    
-    successMessage.value = `Pontuação PEP corrigida automaticamente! ${correctedStation.correctionLog || ''}`;
-    setTimeout(() => { successMessage.value = ''; }, 5000);
-    
-  } catch (error) {
-    console.error('Erro ao corrigir PEP:', error);
-    errorMessage.value = `Erro na correção PEP: ${error.message}`;
-  }
-}
-
-// Função para correção em lote de todas as estações (apenas para super-admin)
-async function correctAllStationsPEP() {
-  if (!isAdmin.value) {
-    errorMessage.value = 'Apenas administradores podem executar correção em lote';
-    return;
-  }
-  
-  const confirmBatch = confirm(
-    'ATENÇÃO: Esta ação irá corrigir a pontuação PEP de TODAS as estações no banco de dados. ' +
-    'Isso pode levar alguns minutos e não pode ser desfeito. Deseja continuar?'
-  );
-  
-  if (!confirmBatch) return;
-  
-  const corrector = await importPEPCorrector();
-  if (!corrector) {
-    errorMessage.value = 'Erro ao carregar corretor PEP';
-    return;
-  }
-  
-  isLoading.value = true;
-  errorMessage.value = '';
-  
-  try {
-    // Importa Firestore functions
-    const { collection, getDocs, updateDoc, doc } = await import('firebase/firestore');
-    
-    // Busca todas as estações
-    const stationsRef = collection(db, 'estacoes_clinicas');
-    const querySnapshot = await getDocs(stationsRef);
-    
-    let correctedCount = 0;
-    let errorCount = 0;
-    const results = [];
-    
-    for (const docSnapshot of querySnapshot.docs) {
-      try {
-        const stationData = { id: docSnapshot.id, ...docSnapshot.data() };
-        
-        // Aplica correção PEP
-        const correctedStation = corrector.validateAndCorrectPEP(stationData);
-        
-        // Prepara dados para salvar
-        const dataToSave = { ...correctedStation };
-        delete dataToSave.id;
-        delete dataToSave.correctionLog;
-        
-        // Salva no Firebase
-        await updateDoc(docSnapshot.ref, dataToSave);
-        
-        correctedCount++;
-        results.push({
-          id: stationData.id,
-          title: stationData.tituloEstacao || 'Sem título',
-          status: 'corrigido',
-          log: correctedStation.correctionLog || ''
-        });
-        
-      } catch (error) {
-        errorCount++;
-        results.push({
-          id: docSnapshot.id,
-          title: 'Erro ao processar',
-          status: 'erro',
-          log: error.message
-        });
-      }
+// Função para obter o estado inicial do formulário
+function getInitialFormData() {
+  return {
+    idEstacao: '',
+    tituloEstacao: '',
+    numeroDaEstacao: null,
+    especialidade: '',
+    tempoDuracaoMinutos: 10,
+    palavrasChave: '',
+    nivelDificuldade: 'Médio',
+    cenarioAtendimento_nivelAtencao: 'atenção primária à saúde',
+    cenarioAtendimento_tipoAtendimento: 'ambulatorial',
+    cenarioAtendimento_infraestruturaUnidade: '',
+    descricaoCasoCompleta: '',
+    tarefasPrincipais: '',
+    avisosImportantes: '',
+    informacoesVerbaisSimulado: [{ contextoOuPerguntaChave: '', informacao: '' }],
+    impressos: [{ idImpresso: `imp_${Date.now()}_1`, tituloImpresso: '', tipoConteudo: 'texto_simples', conteudo: { texto: ''} }],
+    padraoEsperadoProcedimento: {
+      idChecklistAssociado: '',
+      sinteseEstacao: { resumoCasoPEP: '', focoPrincipalDetalhado: [''] },
+      itensAvaliacao: [{
+          idItem: `itempep_${Date.now()}_1`,
+          itemNumeroOficial: '',
+          descricaoItem: '',
+          pontuacoes: {
+              adequado: { criterio: 'Realizou corretamente e completamente.', pontos: 0 },
+              parcialmenteAdequado: { criterio: 'Realizou parcialmente ou com pequenas falhas.', pontos: 0 },
+              inadequado: { criterio: 'Não realizou ou realizou incorretamente.', pontos: 0 }
+          }
+      }],
+      pontuacaoTotalEstacao: 0
     }
-    
-    successMessage.value = `Correção em lote concluída! ${correctedCount} estações corrigidas, ${errorCount} erros.`;
-    console.log('Resultados da correção em lote:', results);
-    
-  } catch (error) {
-    console.error('Erro na correção em lote:', error);
-    errorMessage.value = `Erro na correção em lote: ${error.message}`;
-  } finally {
-    isLoading.value = false;
-  }
+  };
 }
 
-// Verifica se o usuário atual é o admin definido
+const formData = ref(getInitialFormData());
+
+// Verifica se o usuário atual é admin
 const isAdmin = computed(() => {
   return currentUser.value && (
     currentUser.value.uid === 'KiSITAxXMAY5uU3bOPW5JMQPent2' ||
     currentUser.value.uid === 'RtfNENOqMUdw7pvgeeaBVSuin662' ||
-    currentUser.value.uid === 'UD7S8aiyR8TJXHyxdw29BHNfjEf1' // Novo admin adicionado
+    currentUser.value.uid === 'lNwhdYgMwLhS1ZyufRzw9xLD10y1'
   );
 });
 
-async function fetchStationToEdit() {
+// Computed para calcular pontuação total do PEP
+const calcularPontuacaoTotalPEP = computed(() => {
+  if (!formData.value.padraoEsperadoProcedimento?.itensAvaliacao?.length) return 0;
+  
+  const total = formData.value.padraoEsperadoProcedimento.itensAvaliacao.reduce((acc, item) => {
+    const pontosAdequado = parseFloat(item.pontuacoes?.adequado?.pontos) || 0;
+    return acc + pontosAdequado;
+  }, 0);
+  
+  return total;
+});
+
+// Watch para atualizar pontuação total automaticamente
+watch(calcularPontuacaoTotalPEP, (novaTotal) => {
+  if (formData.value.padraoEsperadoProcedimento) {
+    formData.value.padraoEsperadoProcedimento.pontuacaoTotalEstacao = novaTotal;
+  }
+}, { immediate: true });
+
+// Função para carregar estação do Firestore
+async function fetchStationData() {
   if (!stationId.value) {
     errorMessage.value = "Nenhum ID de estação fornecido para edição.";
     isLoading.value = false;
     return;
   }
+  
   isLoading.value = true;
   errorMessage.value = '';
   successMessage.value = '';
+  
   try {
     const docRef = doc(db, "estacoes_clinicas", stationId.value);
     const docSnap = await getDoc(docRef);
+    
     if (docSnap.exists()) {
-      const loadedData = { id: docSnap.id, ...docSnap.data() };
-      
-      // Normaliza o PEP, verificando se os itens estão em sinteseEstacao
-      const pep = loadedData.padraoEsperadoProcedimento;
-      if (pep && pep.sinteseEstacao && Array.isArray(pep.sinteseEstacao.itensAvaliacao) && pep.sinteseEstacao.itensAvaliacao.length > 0) {
-        pep.itensAvaliacao = [...pep.sinteseEstacao.itensAvaliacao];
-      }
-
-      // Inicializa estruturas aninhadas se não existirem para evitar erros no template
-      loadedData.instrucoesParticipante = loadedData.instrucoesParticipante || { cenarioAtendimento: { infraestruturaUnidade: [] }, tarefasPrincipais: [], avisosImportantes: [] };
-      loadedData.instrucoesParticipante.cenarioAtendimento = loadedData.instrucoesParticipante.cenarioAtendimento || { infraestruturaUnidade: [] };
-      loadedData.instrucoesParticipante.cenarioAtendimento.infraestruturaUnidade = loadedData.instrucoesParticipante.cenarioAtendimento.infraestruturaUnidade || [];
-      loadedData.instrucoesParticipante.tarefasPrincipais = loadedData.instrucoesParticipante.tarefasPrincipais || [];
-      loadedData.instrucoesParticipante.avisosImportantes = loadedData.instrucoesParticipante.avisosImportantes || [];
-      
-      loadedData.materiaisDisponiveis = loadedData.materiaisDisponiveis || { informacoesVerbaisSimulado: [], impressos: [] };
-      loadedData.materiaisDisponiveis.informacoesVerbaisSimulado = loadedData.materiaisDisponiveis.informacoesVerbaisSimulado || [];
-      loadedData.materiaisDisponiveis.impressos = loadedData.materiaisDisponiveis.impressos || [];
-      
-      loadedData.padraoEsperadoProcedimento = loadedData.padraoEsperadoProcedimento || { itensAvaliacao: [] };
-      loadedData.padraoEsperadoProcedimento.itensAvaliacao = loadedData.padraoEsperadoProcedimento.itensAvaliacao || [];
-
-      // Adapta para padrão Clínica Médica se aplicável
-      await adaptarParaClinicaMedicaPadrao(loadedData);
-
-      stationData.value = reactive(JSON.parse(JSON.stringify(loadedData)));
-      originalStationData.value = JSON.parse(JSON.stringify(loadedData));
-      
-      // Aplica correção automática PEP ao carregar
-      await correctPEPScoring();
-      await updatePEPStats();
+      const stationData = { id: docSnap.id, ...docSnap.data() };
+      loadStationIntoForm(stationData);
+      successMessage.value = `Estação "${stationData.tituloEstacao}" carregada com sucesso!`;
+      setTimeout(() => { successMessage.value = ''; }, 3000);
     } else {
-      errorMessage.value = "Estação não encontrada para edição.";
-      stationData.value = null;
+      errorMessage.value = "Estação não encontrada.";
     }
   } catch (error) {
-    console.error("Erro ao buscar estação para edição:", error);
+    console.error("Erro ao buscar estação:", error);
     errorMessage.value = `Falha ao carregar estação: ${error.message}`;
-    stationData.value = null;
   } finally {
     isLoading.value = false;
   }
 }
 
+// Função para carregar dados da estação no formulário
+function loadStationIntoForm(stationData) {
+  const form = formData.value;
+  
+  // Dados gerais
+  form.idEstacao = stationData.idEstacao || '';
+  form.tituloEstacao = stationData.tituloEstacao || '';
+  form.numeroDaEstacao = stationData.numeroDaEstacao || null;
+  form.especialidade = stationData.especialidade || '';
+  form.tempoDuracaoMinutos = stationData.tempoDuracaoMinutos || 10;
+  form.nivelDificuldade = stationData.nivelDificuldade || 'Médio';
+  
+  // Palavras-chave
+  if (Array.isArray(stationData.palavrasChave)) {
+    form.palavrasChave = stationData.palavrasChave.join(', ');
+  } else if (typeof stationData.palavrasChave === 'string') {
+    form.palavrasChave = stationData.palavrasChave;
+  } else {
+    form.palavrasChave = '';
+  }
+  
+  // Instruções para participante
+  const ip = stationData.instrucoesParticipante || {};
+  form.descricaoCasoCompleta = ip.descricaoCasoCompleta || '';
+  
+  const tarefas = ip.tarefasPrincipais || [];
+  form.tarefasPrincipais = Array.isArray(tarefas) ? tarefas.join('\n') : (tarefas || '');
+  
+  const avisos = ip.avisosImportantes || [];
+  form.avisosImportantes = Array.isArray(avisos) ? avisos.join('\n') : (avisos || '');
+  
+  // Cenário de atendimento
+  const ca = ip.cenarioAtendimento || {};
+  form.cenarioAtendimento_nivelAtencao = ca.nivelAtencao || 'atenção primária à saúde';
+  form.cenarioAtendimento_tipoAtendimento = ca.tipoAtendimento || 'ambulatorial';
+  const infra = ca.infraestruturaUnidade || [];
+  form.cenarioAtendimento_infraestruturaUnidade = Array.isArray(infra) ? infra.join('; ') : (infra || '');
+  
+  // Materiais disponíveis
+  const md = stationData.materiaisDisponiveis || {};
+  
+  // Informações verbais simulado
+  const informacoesVerbaisExistentes = md.informacoesVerbaisSimulado || [];
+  if (Array.isArray(informacoesVerbaisExistentes) && informacoesVerbaisExistentes.length > 0) {
+    form.informacoesVerbaisSimulado = informacoesVerbaisExistentes.map(info => ({
+      contextoOuPerguntaChave: info.contextoOuPerguntaChave || '',
+      informacao: info.informacao || ''
+    }));
+  } else {
+    form.informacoesVerbaisSimulado = [{ contextoOuPerguntaChave: '', informacao: '' }];
+  }
+  
+  // Impressos
+  if (Array.isArray(md.impressos) && md.impressos.length > 0) {
+    form.impressos = md.impressos.map((imp, idx) => {
+      const defaultConteudo = (type) => {
+        if (type === 'texto_simples') return { texto: '' };
+        if (type === 'imagem_com_texto') return { textoDescritivo: '', caminhoImagem: '', laudo: '' };
+        if (type === 'lista_chave_valor_secoes') return { secoes: [{ tituloSecao: '', itens: [{ chave: '', valor: '' }] }] };
+        return {};
+      };
+      
+      const tipo = imp.tipoConteudo || 'texto_simples';
+      let conteudo = defaultConteudo(tipo);
+      
+      if (imp.conteudo) {
+        if (tipo === 'texto_simples') {
+          conteudo.texto = typeof imp.conteudo.texto === 'string' ? imp.conteudo.texto : '';
+        } else if (tipo === 'imagem_com_texto') {
+          conteudo.textoDescritivo = typeof imp.conteudo.textoDescritivo === 'string' ? imp.conteudo.textoDescritivo : '';
+          conteudo.caminhoImagem = typeof imp.conteudo.caminhoImagem === 'string' ? imp.conteudo.caminhoImagem : '';
+          conteudo.laudo = typeof imp.conteudo.laudo === 'string' ? imp.conteudo.laudo : '';
+        } else if (tipo === 'lista_chave_valor_secoes') {
+          conteudo.secoes = (Array.isArray(imp.conteudo.secoes) ? imp.conteudo.secoes : []).map(s => ({
+            tituloSecao: typeof s.tituloSecao === 'string' ? s.tituloSecao : '',
+            itens: (Array.isArray(s.itens) ? s.itens : []).map(i => ({ 
+              chave: typeof i.chave === 'string' ? i.chave : '',
+              valor: typeof i.valor === 'string' ? i.valor : '' 
+            })).filter(i => i.chave || i.valor)
+          })).filter(s => s.tituloSecao || s.itens.length > 0);
+          
+          if (conteudo.secoes.length === 0) { 
+            conteudo.secoes = [{ tituloSecao: '', itens: [{chave: '', valor: ''}] }];
+          }
+        } else { 
+          conteudo = JSON.parse(JSON.stringify(imp.conteudo)); 
+        }
+      }
+      
+      return {
+        idImpresso: imp.idImpresso || `imp_loaded_${Date.now()}_${idx}`,
+        tituloImpresso: imp.tituloImpresso || '',
+        tipoConteudo: tipo,
+        conteudo: conteudo
+      };
+    });
+  } else {
+    form.impressos = [{ idImpresso: `imp_${Date.now()}_1`, tituloImpresso: '', tipoConteudo: 'texto_simples', conteudo: { texto: ''} }];
+  }
+  
+  // PEP
+  const jsonPep = stationData.padraoEsperadoProcedimento || {};
+  
+  form.padraoEsperadoProcedimento.idChecklistAssociado = jsonPep.idChecklistAssociado || '';
+  
+  const sintese = jsonPep.sinteseEstacao || {};
+  form.padraoEsperadoProcedimento.sinteseEstacao.resumoCasoPEP = sintese.resumoCasoPEP || '';
+  
+  const focos = sintese.focoPrincipalDetalhado || [];
+  form.padraoEsperadoProcedimento.sinteseEstacao.focoPrincipalDetalhado = Array.isArray(focos) && focos.length > 0 ? focos : [''];
+  
+  // Itens de avaliação
+  const itensExistentes = jsonPep.itensAvaliacao || [];
+  if (Array.isArray(itensExistentes) && itensExistentes.length > 0) {
+    form.padraoEsperadoProcedimento.itensAvaliacao = itensExistentes.map(item => ({
+      idItem: item.idItem || '',
+      itemNumeroOficial: item.itemNumeroOficial || '',
+      descricaoItem: item.descricaoItem || '',
+      pontuacoes: {
+        adequado: { 
+          criterio: item.pontuacoes?.adequado?.criterio || 'Realizou corretamente e completamente.', 
+          pontos: parseFloat(item.pontuacoes?.adequado?.pontos) || 0 
+        },
+        parcialmenteAdequado: { 
+          criterio: item.pontuacoes?.parcialmenteAdequado?.criterio || 'Realizou parcialmente ou com pequenas falhas.', 
+          pontos: parseFloat(item.pontuacoes?.parcialmenteAdequado?.pontos) || 0 
+        },
+        inadequado: { 
+          criterio: item.pontuacoes?.inadequado?.criterio || 'Não realizou ou realizou incorretamente.', 
+          pontos: parseFloat(item.pontuacoes?.inadequado?.pontos) || 0 
+        }
+      }
+    }));
+  } else {
+    form.padraoEsperadoProcedimento.itensAvaliacao = [{
+      idItem: `itempep_${Date.now()}_1`,
+      itemNumeroOficial: '',
+      descricaoItem: '',
+      pontuacoes: {
+        adequado: { criterio: 'Realizou corretamente e completamente.', pontos: 0 },
+        parcialmenteAdequado: { criterio: 'Realizou parcialmente ou com pequenas falhas.', pontos: 0 },
+        inadequado: { criterio: 'Não realizou ou realizou incorretamente.', pontos: 0 }
+      }
+    }];
+  }
+  
+  form.padraoEsperadoProcedimento.pontuacaoTotalEstacao = parseFloat(jsonPep.pontuacaoTotalEstacao) || 0;
+}
+
+// Função para construir objeto da estação
+function construirObjetoEstacao() {
+  const pepForm = formData.value.padraoEsperadoProcedimento;
+  const idEstacaoBase = formData.value.idEstacao.trim();
+
+  const estacaoAtualizada = {
+    idEstacao: idEstacaoBase,
+    tituloEstacao: formData.value.tituloEstacao.trim(),
+    numeroDaEstacao: parseInt(formData.value.numeroDaEstacao, 10) || 0,
+    especialidade: formData.value.especialidade.trim(),
+    tempoDuracaoMinutos: parseInt(formData.value.tempoDuracaoMinutos, 10) || 10,
+    palavrasChave: formData.value.palavrasChave.split(',').map(kw => kw.trim()).filter(kw => kw),
+    nivelDificuldade: formData.value.nivelDificuldade,
+    origem: 'REVALIDA_FACIL',
+
+    instrucoesParticipante: {
+      cenarioAtendimento: {
+        nivelAtencao: formData.value.cenarioAtendimento_nivelAtencao.trim(),
+        tipoAtendimento: formData.value.cenarioAtendimento_tipoAtendimento.trim(),
+        infraestruturaUnidade: formData.value.cenarioAtendimento_infraestruturaUnidade.split(';').map(inf => inf.trim()).filter(inf => inf),
+      },
+      descricaoCasoCompleta: formData.value.descricaoCasoCompleta.trim(),
+      tarefasPrincipais: formData.value.tarefasPrincipais.split('\n').map(t => t.trim()).filter(t => t),
+      avisosImportantes: formData.value.avisosImportantes.split('\n').map(a => a.trim()).filter(a => a),
+    },
+
+    materiaisDisponiveis: {
+      impressos: formData.value.impressos.filter(
+        imp => imp.idImpresso.trim() !== '' && imp.tituloImpresso.trim() !== ''
+      ).map(imp => {
+          let finalConteudo = {};
+          const currentConteudo = imp.conteudo || {};
+          if (imp.tipoConteudo === 'texto_simples') {
+              finalConteudo = { texto: currentConteudo.texto?.trim() || '' };
+          } else if (imp.tipoConteudo === 'imagem_com_texto') {
+              finalConteudo = {
+                  textoDescritivo: currentConteudo.textoDescritivo?.trim() || '',
+                  caminhoImagem: currentConteudo.caminhoImagem?.trim() || '',
+                  laudo: currentConteudo.laudo?.trim() || ''
+              };
+          } else if (imp.tipoConteudo === 'lista_chave_valor_secoes') {
+              const secoesTratadas = (Array.isArray(currentConteudo.secoes) ? currentConteudo.secoes : []).map(sec => ({
+                  tituloSecao: sec.tituloSecao?.trim() || '',
+                  itens: (Array.isArray(sec.itens) ? sec.itens : []).map(it => ({
+                      chave: it.chave?.trim() || '',
+                      valor: it.valor?.trim() || ''
+                  })).filter(it => it.chave || it.valor)
+              })).filter(sec => sec.tituloSecao || sec.itens.length > 0);
+              finalConteudo = { secoes: secoesTratadas.length > 0 ? secoesTratadas : [{ tituloSecao: '', itens: [{ chave: '', valor: ''}] }] };
+          } else {
+              finalConteudo = typeof currentConteudo === 'object' && currentConteudo !== null ? JSON.parse(JSON.stringify(currentConteudo)) : {};
+          }
+          return {
+              idImpresso: imp.idImpresso.trim(),
+              tituloImpresso: imp.tituloImpresso.trim(),
+              tipoConteudo: imp.tipoConteudo,
+              conteudo: finalConteudo
+          };
+      }),
+      informacoesVerbaisSimulado: formData.value.informacoesVerbaisSimulado.filter(
+        info => info.contextoOuPerguntaChave.trim() !== '' || info.informacao.trim() !== ''
+      ).map(info => ({
+          contextoOuPerguntaChave: info.contextoOuPerguntaChave.trim(),
+          informacao: info.informacao.trim()
+      })),
+      perguntasAtorSimulado: []
+    },
+
+    padraoEsperadoProcedimento: {
+      idChecklistAssociado: pepForm.idChecklistAssociado.trim() || `pep_${idEstacaoBase || Date.now()}`,
+      sinteseEstacao: {
+        resumoCasoPEP: pepForm.sinteseEstacao.resumoCasoPEP.trim(),
+        focoPrincipalDetalhado: pepForm.sinteseEstacao.focoPrincipalDetalhado.map(f => f.trim()).filter(f => f)
+      },
+      itensAvaliacao: pepForm.itensAvaliacao.filter(
+        item => item.idItem.trim() !== '' && item.descricaoItem.trim() !== ''
+      ).map(item => ({
+          idItem: item.idItem.trim(),
+          itemNumeroOficial: item.itemNumeroOficial.trim(),
+          descricaoItem: item.descricaoItem.trim(),
+          pontuacoes: {
+              adequado: { criterio: item.pontuacoes.adequado.criterio.trim(), pontos: parseFloat(item.pontuacoes.adequado.pontos) || 0 },
+              parcialmenteAdequado: { criterio: item.pontuacoes.parcialmenteAdequado.criterio.trim(), pontos: parseFloat(item.pontuacoes.parcialmenteAdequado.pontos) || 0 },
+              inadequado: { criterio: item.pontuacoes.inadequado.criterio.trim(), pontos: parseFloat(item.pontuacoes.inadequado.pontos) || 0 },
+          }
+      })),
+      pontuacaoTotalEstacao: calcularPontuacaoTotalPEP.value
+    }
+  };
+
+  if (estacaoAtualizada.instrucoesParticipante.avisosImportantes && estacaoAtualizada.instrucoesParticipante.avisosImportantes.length === 0) {
+      delete estacaoAtualizada.instrucoesParticipante.avisosImportantes;
+  }
+  if (estacaoAtualizada.materiaisDisponiveis.perguntasAtorSimulado && estacaoAtualizada.materiaisDisponiveis.perguntasAtorSimulado.length === 0) {
+      delete estacaoAtualizada.materiaisDisponiveis.perguntasAtorSimulado;
+  }
+
+  return estacaoAtualizada;
+}
+
+// Função para validar estrutura da estação
+function validarEstruturaEstacao(estacao) {
+  return estacao && 
+         estacao.idEstacao && 
+         estacao.idEstacao.trim() !== '' && 
+         estacao.tituloEstacao && 
+         estacao.tituloEstacao.trim() !== '';
+}
+
+// Função para salvar alterações
 async function saveStationChanges() {
-  if (!stationData.value || !stationData.value.id) {
-    errorMessage.value = "Nenhum dado da estação para salvar.";
-    alert("Nenhum dado da estação para salvar.");
+  if (!stationId.value) {
+    errorMessage.value = "Nenhum ID de estação para salvar.";
     return;
   }
+  
   if (!isAdmin.value) {
     errorMessage.value = "Apenas administradores podem salvar alterações.";
-    alert("Apenas administradores podem salvar alterações.");
     return;
   }
 
-  isLoading.value = true;
+  isSaving.value = true;
   errorMessage.value = '';
   successMessage.value = '';
 
   try {
-    // Aplica correção automática PEP antes de salvar
-    await correctPEPScoring();
+    const estacaoAtualizada = construirObjetoEstacao();
     
-    // Adapta para padrão Clínica Médica antes de salvar
-    await adaptarParaClinicaMedicaPadrao(stationData.value);
+    if (!validarEstruturaEstacao(estacaoAtualizada)) {
+      errorMessage.value = "Falha na validação da estrutura da estação. Verifique 'ID da Estação' e 'Título da Estação'.";
+      isSaving.value = false;
+      return;
+    }
     
-    const stationDocRef = doc(db, 'estacoes_clinicas', stationData.value.id);
+    if (typeof estacaoAtualizada.numeroDaEstacao !== 'number' || isNaN(estacaoAtualizada.numeroDaEstacao) || estacaoAtualizada.numeroDaEstacao <= 0) {
+      errorMessage.value = "Erro de validação: O campo 'Número da Estação' deve ser um número válido e maior que zero.";
+      isSaving.value = false;
+      return;
+    }
+
+    if (!estacaoAtualizada.padraoEsperadoProcedimento?.itensAvaliacao?.length || estacaoAtualizada.padraoEsperadoProcedimento.itensAvaliacao.some(item => !item.idItem || !item.descricaoItem)) {
+        errorMessage.value = "Erro de validação: O PEP (Checklist) deve conter pelo menos um item de avaliação com ID e Descrição preenchidos.";
+        isSaving.value = false;
+        return;
+    }
     
-    // O objeto stationData.value já está reativo e com os dados corretos.
-    // Apenas removemos o ID antes de salvar.
-    const dataToSave = JSON.parse(JSON.stringify(stationData.value));
-    delete dataToSave.id; 
+    const stationDocRef = doc(db, 'estacoes_clinicas', stationId.value);
+    
+    const dataToSave = {
+      ...estacaoAtualizada,
+      atualizadoEmTimestamp: serverTimestamp(),
+      // Manter campos de integração se existirem, senão adicionar padrões
+      mediaNotas: 0,
+      totalAvaliacoes: 0,
+      usuariosQueConcluíram: []
+    };
 
     await updateDoc(stationDocRef, dataToSave);
-    successMessage.value = "Estação atualizada com sucesso! (Pontuação PEP corrigida automaticamente)";
-    originalStationData.value = JSON.parse(JSON.stringify(stationData.value)); 
-    setTimeout(() => { successMessage.value = ''; }, 3000);
+    
+    successMessage.value = `Estação "${estacaoAtualizada.tituloEstacao}" atualizada com sucesso!`;
+    setTimeout(() => { successMessage.value = ''; }, 5000);
 
   } catch (error) {
     console.error("Erro ao salvar alterações da estação:", error);
-    errorMessage.value = `Falha ao salvar: ${error.message}`;
+    let detalheErro = error.message;
+    if (error.code === 'permission-denied') {
+      detalheErro += " (ERRO DE PERMISSÃO DO FIRESTORE - Verifique as regras de segurança e o UID do admin)";
+    }
+    errorMessage.value = `Falha ao salvar: ${detalheErro}`;
   } finally {
-    isLoading.value = false;
+    isSaving.value = false;
   }
 }
 
 // Função para excluir a estação
 async function deleteStation() {
-  if (!stationId.value || !stationData.value) {
+  if (!stationId.value) {
     errorMessage.value = "Nenhuma estação para excluir.";
     return;
   }
   
   if (!isAdmin.value) {
     errorMessage.value = "Apenas administradores podem excluir estações.";
-    alert("Apenas administradores podem excluir estações.");
     return;
   }
   
-  // Confirmação antes de excluir
-  const confirmDelete = confirm(`ATENÇÃO: Você está prestes a EXCLUIR permanentemente a estação "${stationData.value.tituloEstacao}". Esta ação NÃO pode ser desfeita. Deseja continuar?`);
+  const confirmDelete = confirm(`ATENÇÃO: Você está prestes a EXCLUIR permanentemente a estação "${formData.value.tituloEstacao}". Esta ação NÃO pode ser desfeita. Deseja continuar?`);
   
   if (!confirmDelete) {
-    return; // Usuário cancelou a exclusão
+    return;
   }
   
-  isLoading.value = true;
+  isSaving.value = true;
   errorMessage.value = '';
   
   try {
@@ -312,7 +462,6 @@ async function deleteStation() {
     
     successMessage.value = "Estação excluída com sucesso!";
     
-    // Redirecionar para a lista de estações após um breve atraso
     setTimeout(() => {
       router.push('/app/station-list');
     }, 1500);
@@ -320,902 +469,710 @@ async function deleteStation() {
   } catch (error) {
     console.error("Erro ao excluir estação:", error);
     errorMessage.value = `Falha ao excluir: ${error.message}`;
-    isLoading.value = false;
+    isSaving.value = false;
   }
 }
 
-function addToArray(targetArray, newItemTemplate = {}) {
-  if (Array.isArray(targetArray)) {
-    targetArray.push(reactive(JSON.parse(JSON.stringify(newItemTemplate))));
-  } else {
-    console.error("Tentativa de adicionar a um não-array:", targetArray, "Template:", newItemTemplate);
+// Funções auxiliares para manipular arrays dinâmicos
+function adicionarInfoVerbal() {
+  formData.value.informacoesVerbaisSimulado.push({ contextoOuPerguntaChave: '', informacao: '' });
+}
+
+function removerInfoVerbal(index) {
+  if (formData.value.informacoesVerbaisSimulado.length > 1) {
+    formData.value.informacoesVerbaisSimulado.splice(index, 1);
   }
 }
 
-function removeFromArray(targetArray, index) {
-  if (Array.isArray(targetArray)) {
-    targetArray.splice(index, 1);
+function adicionarImpresso() {
+  const novoImpresso = {
+    idImpresso: `imp_${Date.now()}_${formData.value.impressos.length + 1}`,
+    tituloImpresso: '',
+    tipoConteudo: 'texto_simples',
+    conteudo: { texto: '' }
+  };
+  formData.value.impressos.push(novoImpresso);
+}
+
+function removerImpresso(index) {
+  if (formData.value.impressos.length > 1) {
+    formData.value.impressos.splice(index, 1);
   }
 }
 
-function addActorScriptItem() {
-  if (stationData.value?.materiaisDisponiveis?.informacoesVerbaisSimulado) {
-    addToArray(stationData.value.materiaisDisponiveis.informacoesVerbaisSimulado, { contextoOuPerguntaChave: 'Novo Contexto', informacao: 'Nova Informação' });
+function adicionarFocoPrincipalPEP() {
+  formData.value.padraoEsperadoProcedimento.sinteseEstacao.focoPrincipalDetalhado.push('');
+}
+
+function removerFocoPrincipalPEP(index) {
+  if (formData.value.padraoEsperadoProcedimento.sinteseEstacao.focoPrincipalDetalhado.length > 1) {
+    formData.value.padraoEsperadoProcedimento.sinteseEstacao.focoPrincipalDetalhado.splice(index, 1);
   }
 }
 
-// Templates de conteúdo para cada tipo de impresso
-const impressoTemplates = {
-  lista_chave_valor_secoes: {
-    secoes: [
-      {
-        tituloSecao: "Nova Seção",
-        itens: [
-          {
-            chave: "Nova Chave",
-            valor: "Novo Valor"
-          }
-        ]
-      }
-    ]
-  },
-  tabela_objetos: {
-    cabecalhos: [
-      { key: "col1", label: "Coluna 1" },
-      { key: "col2", label: "Coluna 2" }
-    ],
-    linhas: [
-      { col1: "Valor 1", col2: "Valor 2" }
-    ]
-  },
-  imagem_descritiva: {
-    descricao: "Descrição da imagem aqui",
-    caminhoImagem: "https://caminho/para/imagem.jpg"
-  },
-  imagem_com_texto: {
-    textoDescritivo: "Texto descritivo/interpretação aqui",
-    caminhoImagem: "https://caminho/para/imagem.jpg",
-    legendaImagem: "Legenda da imagem",
-    laudo: "Laudo ou informações adicionais aqui"
-  }
-};
-
-// Função atualizada para adicionar novo impresso
-function addImpressoItem() {
-  if (stationData.value?.materiaisDisponiveis?.impressos) {
-    const tipoConteudoPadrao = 'lista_chave_valor_secoes';
-    const newImpresso = {
-      idImpresso: `est${stationData.value.numeroDaEstacao || 'X'}_novo_impresso_${Date.now()}`,
-      tituloImpresso: 'Novo Impresso (Título)',
-      tipoConteudo: tipoConteudoPadrao,
-      conteudo: JSON.parse(JSON.stringify(impressoTemplates[tipoConteudoPadrao])), // Usa o template padrão
-    };
-    addToArray(stationData.value.materiaisDisponiveis.impressos, newImpresso);
-  }
-}
-
-// Função para atualizar o template do conteúdo quando o tipo de impresso muda
-function atualizarTemplateImpresso(impresso) {
-  const tipoConteudo = impresso.tipoConteudo;
-  if (impressoTemplates[tipoConteudo]) {
-    // Cria uma cópia profunda para evitar reatividade cruzada entre impressos
-    impresso.conteudo = JSON.parse(JSON.stringify(impressoTemplates[tipoConteudo]));
-  }
-}
-
-function updatePEPItemNumbers() {
-  if (stationData.value?.padraoEsperadoProcedimento?.itensAvaliacao) {
-    stationData.value.padraoEsperadoProcedimento.itensAvaliacao.forEach((item, index) => {
-      item.itemNumeroOficial = (index + 1).toString();
-    });
-  }
-}
-
-function reorderPEPItems(index) {
-  const items = stationData.value.padraoEsperadoProcedimento.itensAvaliacao;
-  if (!items) return;
-
-  const itemToMove = items[index];
-  let newPosition = parseInt(itemToMove.itemNumeroOficial, 10);
-
-  // Valida e limita a nova posição para estar dentro dos limites do array
-  if (isNaN(newPosition)) {
-    updatePEPItemNumbers(); // Restaura o número se a entrada for inválida
-    return;
-  }
-  newPosition = Math.max(1, Math.min(newPosition, items.length));
-
-  // Remove o item da posição antiga e insere na nova
-  items.splice(index, 1);
-  items.splice(newPosition - 1, 0, itemToMove);
-
-  // Atualiza a numeração de todos os itens
-  updatePEPItemNumbers();
-}
-
-function addPEPItem() {
-  if (stationData.value?.padraoEsperadoProcedimento?.itensAvaliacao) {
-    const newItem = {
-      idItem: `pep_est${stationData.value.numeroDaEstacao || 'X'}_novo_item_${Date.now()}`,
-      itemNumeroOficial: (stationData.value.padraoEsperadoProcedimento.itensAvaliacao.length + 1).toString(),
-      descricaoItem: 'Nova descrição do item PEP...',
-      pontuacoes: {
-        adequado: { criterio: 'Critério para adequado', pontos: 0.0 },
-        parcialmenteAdequado: { criterio: 'Critério para parcialmente adequado', pontos: 0.0 },
-        inadequado: { criterio: 'Critério para inadequado', pontos: 0.0 }
-      }
-    };
-    addToArray(stationData.value.padraoEsperadoProcedimento.itensAvaliacao, newItem);
-    updatePEPItemNumbers(); // Garante que a numeração está correta
-  }
-}
-
-function removePEPItem(index) {
-  if (stationData.value?.padraoEsperadoProcedimento?.itensAvaliacao) {
-    removeFromArray(stationData.value.padraoEsperadoProcedimento.itensAvaliacao, index);
-    updatePEPItemNumbers();
-  }
-}
-
-function movePEPItem(index, direction) {
-  const items = stationData.value.padraoEsperadoProcedimento.itensAvaliacao;
-  if (!items) return;
-
-  if (direction === 'up' && index > 0) {
-    [items[index], items[index - 1]] = [items[index - 1], items[index]];
-  } else if (direction === 'down' && index < items.length - 1) {
-    [items[index], items[index + 1]] = [items[index + 1], items[index]];
-  }
-  updatePEPItemNumbers();
-}
-
-
-function addStandardPEPItems(category) {
-  const itemsToAdd = pepStandardLibrary[category];
-  if (!itemsToAdd || !stationData.value?.padraoEsperadoProcedimento?.itensAvaliacao) return;
-
-  itemsToAdd.forEach(itemTemplate => {
-    const newItem = JSON.parse(JSON.stringify(itemTemplate)); // Deep copy
-    const currentItems = stationData.value.padraoEsperadoProcedimento.itensAvaliacao;
-    
-    newItem.idItem = `pep_est${stationData.value.numeroDaEstacao || 'X'}_item_${Date.now()}_${Math.random()}`;
-    newItem.itemNumeroOficial = (currentItems.length + 1).toString();
-    
-    addToArray(currentItems, newItem);
-  });
-  
-  updatePEPItemNumbers(); // Atualiza a numeração de todos os itens
-
-  successMessage.value = `Itens de '${category}' adicionados com sucesso!`;
-  setTimeout(() => { successMessage.value = ''; }, 3000);
-}
-
-
-// Função para limpar texto removendo caracteres desnecessários
-function cleanText(text) {
-  if (!text || typeof text !== 'string') return text;
-  
-  return text
-    // Remove "e," no final de frases
-    .replace(/\s*e,\s*$/gim, '')
-    .replace(/\s*e,\s*(\\.|;|!|\\?)/g, '$1')
-    // Remove "ITEM AVALIAÇÃO" (pode aparecer em diferentes formatos)
-    .replace(/\s*ITEM\s+AVALIA[ÇC][ÃA]O\s*/gi, '')
-    .replace(/\s*ITEM\s+DE\s+AVALIA[ÇC][ÃA]O\s*/gi, '')
-    // Remove vírgulas duplas
-    .replace(/,,+/g, ',')
-    // Remove espaços extras antes de pontuação
-    .replace(/\s+([,.;:!?])/g, '$1')
-    // Remove espaços extras no meio do texto
-    .replace(/\s{2,}/g, ' ')
-    // Remove espaços no início e fim
-    .trim();
-}
-
-// Função para limpar todos os campos de texto da estação
-function cleanAllTextFields() {
-  if (!stationData.value) return;
-  
-  // Função auxiliar para limpar campos
-  function cleanField(field) {
-    if (field && typeof field === 'string') {
-      return field.includes('<') && field.includes('>') ? 
-        cleanRichText(field) : cleanText(field);
+function adicionarItemAvaliacaoPEP() {
+  const novoItem = {
+    idItem: `itempep_${Date.now()}_${formData.value.padraoEsperadoProcedimento.itensAvaliacao.length + 1}`,
+    itemNumeroOficial: '',
+    descricaoItem: '',
+    pontuacoes: {
+      adequado: { criterio: 'Realizou corretamente e completamente.', pontos: 0 },
+      parcialmenteAdequado: { criterio: 'Realizou parcialmente ou com pequenas falhas.', pontos: 0 },
+      inadequado: { criterio: 'Não realizou ou realizou incorretamente.', pontos: 0 }
     }
-    return field;
-  }
-  
-  // Limpar título da estação
-  if (stationData.value.tituloEstacao) {
-    stationData.value.tituloEstacao = cleanField(stationData.value.tituloEstacao);
-  }
-  
-  // Limpar especialidade
-  if (stationData.value.especialidade) {
-    stationData.value.especialidade = cleanField(stationData.value.especialidade);
-  }
-  
-  // Limpar instruções do participante
-  if (stationData.value.instrucoesParticipante) {
-    if (stationData.value.instrucoesParticipante.descricaoCasoCompleta) {
-      stationData.value.instrucoesParticipante.descricaoCasoCompleta = 
-        cleanField(stationData.value.instrucoesParticipante.descricaoCasoCompleta);
-    }
-    
-    // Limpar tarefas principais
-    if (stationData.value.instrucoesParticipante.tarefasPrincipais) {
-      stationData.value.instrucoesParticipante.tarefasPrincipais = 
-        stationData.value.instrucoesParticipante.tarefasPrincipais.map(cleanField);
-    }
-    
-    // Limpar avisos importantes
-    if (stationData.value.instrucoesParticipante.avisosImportantes) {
-      stationData.value.instrucoesParticipante.avisosImportantes = 
-        stationData.value.instrucoesParticipante.avisosImportantes.map(cleanField);
-    }
-  }
-  
-  // Limpar informações verbais do simulado
-  if (stationData.value.materiaisDisponiveis?.informacoesVerbaisSimulado) {
-    stationData.value.materiaisDisponiveis.informacoesVerbaisSimulado = 
-      stationData.value.materiaisDisponiveis.informacoesVerbaisSimulado.map(info => ({
-        ...info,
-        informacao: cleanField(info.informacao)
-      }));
-  }
-  
-  // Limpar itens de avaliação PEP
-  if (stationData.value.padraoEsperadoProcedimento?.itensAvaliacao) {
-    stationData.value.padraoEsperadoProcedimento.itensAvaliacao = 
-      stationData.value.padraoEsperadoProcedimento.itensAvaliacao.map(item => ({
-        ...item,
-        descricaoItem: cleanField(item.descricaoItem),
-        pontuacoes: {
-          adequado: {
-            ...item.pontuacoes.adequado,
-            criterio: cleanField(item.pontuacoes.adequado.criterio)
-          },
-          parcialmenteAdequado: {
-            ...item.pontuacoes.parcialmenteAdequado,
-            criterio: cleanField(item.pontuacoes.parcialmenteAdequado.criterio)
-          },
-          inadequado: {
-            ...item.pontuacoes.inadequado,
-            criterio: cleanField(item.pontuacoes.inadequado.criterio)
-          }
-        }
-      }));
-  }
-  
-  successMessage.value = "Texto limpo com sucesso! Caracteres desnecessários foram removidos mantendo a formatação.";
-  setTimeout(() => { successMessage.value = ''; }, 3000);
+  };
+  formData.value.padraoEsperadoProcedimento.itensAvaliacao.push(novoItem);
 }
 
-// Função para limpar um campo de texto específico
-function cleanSingleField(fieldPath) {
-  const pathParts = fieldPath.split('.');
-  let current = stationData.value;
-  
-  // Navegar até o campo correto
-  for (let i = 0; i < pathParts.length - 1; i++) {
-    if (current[pathParts[i]]) {
-      current = current[pathParts[i]];
-    } else {
-      return; // Campo não existe
-    }
-  }
-  
-  const fieldName = pathParts[pathParts.length - 1];
-  if (current[fieldName]) {
-    // Verifica se o campo contém tags HTML
-    if (current[fieldName].includes('<') && current[fieldName].includes('>')) {
-      current[fieldName] = cleanRichText(current[fieldName]);
-    } else {
-      current[fieldName] = cleanText(current[fieldName]);
-    }
+function removerItemAvaliacaoPEP(index) {
+  if (formData.value.padraoEsperadoProcedimento.itensAvaliacao.length > 1) {
+    formData.value.padraoEsperadoProcedimento.itensAvaliacao.splice(index, 1);
   }
 }
 
-// Função para limpar texto rico mantendo formatação HTML
-function cleanRichText(htmlText) {
-  if (!htmlText || typeof htmlText !== 'string') return htmlText;
-  
-  return htmlText
-    // Remove "e," e "e;" desnecessários
-    .replace(/\s*e,\s*<\/p>/gim, '<\/p>')
-    .replace(/\s*e;\s*<\/p>/gim, '<\/p>')
-    // Remove "ITEM AVALIAÇÃO" mantendo as tags
-    .replace(/(<[^>]+>)*\s*ITEM\s+AVALIA[ÇC][ÃA]O\s*(<\/[^>]+>)*/gi, '')
-    .replace(/(<[^>]+>)*\s*ITEM\s+DE\s+AVALIA[ÇC][ÃA]O\s*(<\/[^>]+>)*/gi, '')
-    // Remove espaços múltiplos entre tags
-    .replace(/>\s{2,}</g, '> <')
-    // Normaliza espaços antes de pontuação
-    .replace(/\s+([,.;:!?])/g, '$1')
-    // Remove linhas em branco consecutivas
-    .replace(/(<p>&nbsp;<\/p>){2,}/g, '<p>&nbsp;<\/p>');
-}
-
-// Prompt da IA para auto-adaptação
-const promptIA = `Você é um especialista em educação médica e na prova Revalida. Sua tarefa é usar este modelo JSON como um gabarito para converter um caso clínico bruto em uma estação estruturada. Siga TODAS as regras rigorosamente:
-1. Preencha todos os campos marcados com [ ].
-2. No campo tituloEstacao, SEMPRE comece com o prefixo 'REVALIDA FACIL - ' seguido pelo tema central do caso.
-3. Na seção informacoesVerbaisSimulado, detalhe cada item da anamnese de forma granular. Para cada sintoma, antecedente ou hábito, forneça uma resposta específica ou use 'Nega' ou 'Não se aplica'. Separe cada tipo de antecedente (Pessoal, Ginecológico, Familiar, Epidemiológico, etc.) em seu próprio contextoOuPerguntaChave.
-4. Na seção itensAvaliacao, a pontuação 'parcialmenteAdequado' só deve ser aplicada quando o item de avaliação contiver 3 ou mais subtarefas. Para itens mais simples e diretos, use apenas 'adequado' e 'inadequado'.
-5. Adapte os pontos para que a pontuacaoTotalEstacao seja sempre 10.0.
-6. Ao final, adicione a seção feedbackEstacao. Crie um resumoTecnico conciso (máximo 15 linhas) sobre a patologia, focando em pontos-chave de diagnóstico e manejo conforme as diretrizes mais atuais (Ministério da Saúde, sociedades médicas, manuais de referência como Cecil/Harrison). É mandatório citar as fontes utilizadas.
-7. IMPORTANTE: Ao gerar o JSON final da estação, este campo 'promptIA' deve ser completamente removido.`;
-
-// Função para auto-adaptação do roteiro usando IA
-async function autoAdaptActorScript() {
-  const corrector = await importPEPCorrector();
-  if (!corrector) {
-    errorMessage.value = 'Erro ao carregar corretor PEP para auto-adaptação.';
-    return;
-  }
-
-  // Template completo que será usado como base para a adaptação
-  const template = [
-    {
-      contextoOuPerguntaChave: "INSTRUÇÕES DE ATUAÇÃO",
-      informacao: "Comportamento: [Instrução geral de atuação do ator].\nAções Específicas: [Ações físicas a serem realizadas pelo ator]."
-    },
-    {
-      contextoOuPerguntaChave: "IDENTIFICAÇÃO",
-      informacao: "Nome: [Nome]\nIdade: [Idade]\nGênero: [Gênero]\nOcupação: [Ocupação]\nEstado Civil: [Estado Civil]\nNaturalidade: [Naturalidade]\nProcedência: [Procedência]"
-    },
-    {
-      contextoOuPerguntaChave: "QUEIXA PRINCIPAL",
-      informacao: "[Queixa principal em primeira pessoa, com duração]."
-    },
-    {
-      contextoOuPerguntaChave: "HISTÓRIA DA DOENÇA ATUAL (HDA)",
-      informacao: "Sintoma Principal (Ex: DOR):\nInício: [Detalhes]\nLocalização: [Detalhes]\nIrradiação: [Detalhes ou 'Nega']\nCaráter/Tipo: [Detalhes]\nIntensidade: [Detalhes]\nFatores de Melhora/Piora: [Detalhes ou 'Nega']\n\nSintoma Associado (Ex: NÁUSEAS/VÔMITOS):\nInício: [Detalhes]\nFrequência: [Detalhes]\nConteúdo: [Detalhes]"
-    },
-    {
-      contextoOuPerguntaChave: "INTERROGATÓRIO SISTEMÁTICO",
-      informacao: "Geral: [Astenia, Anorexia, Perda Ponderal - Nega/Presente]\nPele/Fâneros: [Nega/Presente]\nCabeça/Pescoço: [Nega/Presente]\nCardiovascular: [Nega/Presente]\nRespiratório: [Nega/Presente]\nGastrointestinal: [Nega/Presente]\nUrinário: [Nega/Presente]\nMúsculo-esquelético: [Nega/Presente]\nNeurológico: [Nega/Presente]"
-    }
-  ];
-
-  if (confirm("Esta ação vai tentar adaptar o conteúdo atual do roteiro para o formato padrão do Revalida. Deseja continuar?")) {
-    // Aqui você implementaria a lógica de integração com a IA usando o template e o promptIA
-    // Por enquanto, apenas mostra a estrutura que será usada
-    console.log("Adaptando conteúdo usando o template:", template);
-    alert("Funcionalidade de auto-adaptação com IA será implementada em breve!");
-  }
-}
-
-// --- Função utilitária para adaptar estação ao padrão de Clínica Médica ---
-async function adaptarParaClinicaMedicaPadrao(station) {
-  const corrector = await importPEPCorrector();
-  if (!corrector) {
-    console.error('Erro ao carregar corretor PEP para adaptação de Clínica Médica.');
-    return station;
-  }
-
-  // 1. Verifica se é Clínica Médica
-  if (station.especialidade !== 'Clínica Médica') return station;
-
-  // 2. Adapta informacoesVerbaisSimulado
-  station.materiaisDisponiveis = station.materiaisDisponiveis || {};
-  station.materiaisDisponiveis.informacoesVerbaisSimulado = corrector.adaptarRoteiroAtor(station.materiaisDisponiveis.informacoesVerbaisSimulado);
-
-  // 3. Adapta itens do PEP
-  station.padraoEsperadoProcedimento = station.padraoEsperadoProcedimento || {};
-  station.padraoEsperadoProcedimento.itensAvaliacao = corrector.adaptarItensPEP(station.padraoEsperadoProcedimento.itensAvaliacao);
-
-  // 4. Normaliza pontuação total
-  corrector.normalizarPontuacaoTotal(station);
-
-  return station;
-}
-
-// Função para adaptação manual dos itens do PEP ao padrão Clínica Médica
-async function adaptarPEPManual() {
-  if (!stationData.value || stationData.value.especialidade !== 'Clínica Médica') return;
-  
-  const corrector = await importPEPCorrector();
-  if (!corrector) {
-    errorMessage.value = 'Erro ao carregar corretor PEP para adaptação manual.';
-    return;
-  }
-
-  stationData.value.padraoEsperadoProcedimento.itensAvaliacao = corrector.adaptarItensPEP(stationData.value.padraoEsperadoProcedimento.itensAvaliacao);
-  corrector.normalizarPontuacaoTotal(stationData.value);
-  successMessage.value = 'Itens do PEP adaptados ao padrão Clínica Médica!';
-  setTimeout(() => { successMessage.value = ''; }, 3000);
-}
-
+// Lifecycle
 onMounted(() => {
-  // O watch com immediate: true já chama fetchStationToEdit na montagem se route.params.id estiver presente
+  // O watch com immediate: true já chama fetchStationData na montagem se route.params.id estiver presente
 });
 
 watch(() => route.params.id, (newId) => {
-  if (newId) { // Verifica se newId existe antes de atribuir e buscar
+  if (newId) {
     stationId.value = newId;
-    fetchStationToEdit();
+    fetchStationData();
   }
-}, { immediate: true }); // immediate: true para rodar na montagem inicial
-
-// Watch para atualizar estatísticas PEP quando itens mudam
-watch(() => stationData.value?.padraoEsperadoProcedimento?.itensAvaliacao, () => {
-  if (stationData.value) {
-    // Debounce para evitar muitas chamadas durante edição
-    setTimeout(() => {
-      updatePEPStats();
-    }, 500);
-  }
-}, { deep: true });
-
-function goToEditStation(stationId) {
-  router.push(`/app/station-edit/${stationId || ''}`);
-}
+}, { immediate: true });
 </script>
 
 <template>
-  <VContainer fluid>
-    <VRow>
-      <VCol cols="12">
-        <div class="d-flex justify-space-between align-center mb-4">
-          <VBtn @click="router.push('/app/station-list')" prepend-icon="ri-arrow-left-line">
-            Voltar para Lista
-          </VBtn>
-          <h2 class="text-h4">Editar Estação</h2>
-          <VBtn 
-            v-if="stationId && isAdmin" 
-            @click="deleteStation" 
-            :disabled="isLoading"
-            color="error" 
-            variant="tonal"
-            prepend-icon="ri-delete-bin-line"
-          >
-            Apagar Estação
-          </VBtn>
-        </div>
-      </VCol>
-    </VRow>
+  <div class="admin-upload-page">
+    <div class="d-flex justify-space-between align-center mb-4">
+      <button @click="router.push('/app/station-list')" class="back-button">
+        ← Voltar para Lista
+      </button>
+      <h2>Editar Estação Clínica</h2>
+      <button 
+        v-if="stationId && isAdmin" 
+        @click="deleteStation" 
+        :disabled="isSaving"
+        class="delete-button"
+      >
+        🗑️ Apagar Estação
+      </button>
+    </div>
 
-    <VRow justify="center">
-      <VCol cols="12">
-        <VProgressCircular v-if="isLoading" indeterminate size="64" class="d-block mx-auto" />
-        <VAlert v-if="errorMessage" type="error" prominent class="mb-4">{{ errorMessage }}</VAlert>
-        <VAlert v-if="successMessage" type="success" prominent class="mb-4">{{ successMessage }}</VAlert>
-      </VCol>
-    </VRow>
+    <div v-if="isLoading" class="loading-container">
+      <div class="loading-spinner"></div>
+      <p>Carregando estação...</p>
+    </div>
 
-    <form v-if="stationData && !isLoading && isAdmin" @submit.prevent="saveStationChanges">
-      <VChip color="primary" class="d-block mx-auto mb-6">
-        Editando Estação ID: <strong>{{ stationData.id }}</strong>
-      </VChip>
+    <div v-if="errorMessage" class="status-message-internal erro">{{ errorMessage }}</div>
+    <div v-if="successMessage" class="status-message-internal sucesso">{{ successMessage }}</div>
 
-      <!-- Informações Gerais -->
-      <VCard class="mb-6">
-        <VCardTitle>Informações Gerais da Estação</VCardTitle>
-        <VCardText>
-          <VRow>
-            <VCol cols="12" md="8">
-              <VTextField label="Título da Estação" v-model="stationData.tituloEstacao" required />
-            </VCol>
-            <VCol cols="12" md="4">
-              <VTextField label="Número da Estação" v-model.number="stationData.numeroDaEstacao" type="number" required />
-            </VCol>
-            <VCol cols="12" md="6">
-              <VTextField label="Especialidade" v-model="stationData.especialidade" required />
-            </VCol>
-            <VCol cols="12" md="6">
-              <VTextField label="Tempo de Duração (minutos)" v-model.number="stationData.tempoDuracaoMinutos" type="number" required />
-            </VCol>
-            <VCol cols="12" md="6">
-              <VTextField label="Palavras-Chave (separadas por vírgula)" v-model="stationData.palavrasChave" />
-            </VCol>
-            <VCol cols="12" md="6">
-              <VTextField label="Nível de Dificuldade" v-model="stationData.nivelDificuldade" />
-            </VCol>
-          </VRow>
-        </VCardText>
-      </VCard>
-
-      <!-- Instruções para o Participante -->
-      <VCard class="mb-6" v-if="stationData.instrucoesParticipante">
-        <VCardTitle>Instruções para o Participante</VCardTitle>
-        <VCardText>
-          <VCard variant="tonal" class="mb-4" v-if="stationData.instrucoesParticipante.cenarioAtendimento">
-            <VCardTitle class="text-subtitle-1">Cenário de Atendimento</VCardTitle>
-            <VCardText>
-              <VRow>
-                <VCol cols="12" md="6">
-                  <VTextField label="Nível de Atenção" v-model="stationData.instrucoesParticipante.cenarioAtendimento.nivelAtencao" />
-                </VCol>
-                <VCol cols="12" md="6">
-                  <VTextField label="Tipo de Atendimento" v-model="stationData.instrucoesParticipante.cenarioAtendimento.tipoAtendimento" />
-                </VCol>
-              </VRow>
-              <div>
-                <label class="v-label">Infraestrutura da Unidade</label>
-                <div v-for="(infra, index) in stationData.instrucoesParticipante.cenarioAtendimento.infraestruturaUnidade" :key="'infra-' + index" class="d-flex align-center my-2">
-                  <VTextField v-model="stationData.instrucoesParticipante.cenarioAtendimento.infraestruturaUnidade[index]" dense hide-details />
-                  <VBtn icon="ri-delete-bin-line" size="small" variant="text" color="error" @click="removeFromArray(stationData.instrucoesParticipante.cenarioAtendimento.infraestruturaUnidade, index)" />
-                </div>
-                <VBtn size="small" color="primary" @click="addToArray(stationData.instrucoesParticipante.cenarioAtendimento.infraestruturaUnidade, '')">Adicionar Infraestrutura</VBtn>
-              </div>
-            </VCardText>
-          </VCard>
-          
-          <div class="mb-4">
-            <div class="d-flex justify-space-between align-center mb-2">
-              <label class="v-label">Descrição do Caso Completa</label>
-              <VBtn icon="ri-broom-line" size="small" variant="text" color="info" @click="cleanSingleField('instrucoesParticipante.descricaoCasoCompleta')" title="Limpar este campo" />
-            </div>
-            <TiptapEditor v-model="stationData.instrucoesParticipante.descricaoCasoCompleta" />
-          </div>
-
-          <div class="mb-4">
-            <label class="v-label">Tarefas Principais</label>
-            <div v-for="(tarefa, index) in stationData.instrucoesParticipante.tarefasPrincipais" :key="'tarefa-' + index" class="d-flex align-start my-2">
-              <TiptapEditor v-model="stationData.instrucoesParticipante.tarefasPrincipais[index]" class="flex-grow-1" />
-              <VBtn icon="ri-delete-bin-line" size="small" variant="text" color="error" @click="removeFromArray(stationData.instrucoesParticipante.tarefasPrincipais, index)" />
-            </div>
-            <VBtn size="small" color="primary" @click="addToArray(stationData.instrucoesParticipante.tarefasPrincipais, '')">Adicionar Tarefa</VBtn>
-          </div>
-
-          <div>
-            <label class="v-label">Avisos Importantes</label>
-            <div v-for="(aviso, index) in stationData.instrucoesParticipante.avisosImportantes" :key="'aviso-' + index" class="d-flex align-start my-2">
-              <TiptapEditor v-model="stationData.instrucoesParticipante.avisosImportantes[index]" class="flex-grow-1" />
-              <VBtn icon="ri-delete-bin-line" size="small" variant="text" color="error" @click="removeFromArray(stationData.instrucoesParticipante.avisosImportantes, index)" />
-            </div>
-            <VBtn size="small" color="primary" @click="addToArray(stationData.instrucoesParticipante.avisosImportantes, '')">Adicionar Aviso</VBtn>
-          </div>
-        </VCardText>
-      </VCard>
-
-      <!-- Roteiro do Ator -->
-      <VCard class="mb-6" v-if="stationData.materiaisDisponiveis && stationData.materiaisDisponiveis.informacoesVerbaisSimulado">
-        <VCardTitle>Roteiro do Ator (Informações Verbais)</VCardTitle>
-        <VCardText>
-          <VBtn color="teal" @click="autoAdaptActorScript()" prepend-icon="ri-robot-line" class="mb-4">Auto-Adaptar Roteiro (IA)</VBtn>
-          <VCard v-for="(info, index) in stationData.materiaisDisponiveis.informacoesVerbaisSimulado" :key="'infoRoteiro-' + index" variant="outlined" class="mb-4 pa-4">
-            <VTextField label="Contexto/Pergunta Chave" v-model="info.contextoOuPerguntaChave" class="mb-2" />
-            <label class="v-label">Informação (em 1ª pessoa)</label>
-            <TiptapEditor v-model="info.informacao" />
-            <VCardActions>
-              <VSpacer />
-              <VBtn color="error" variant="text" @click="removeFromArray(stationData.materiaisDisponiveis.informacoesVerbaisSimulado, index)">Remover Item</VBtn>
-            </VCardActions>
-          </VCard>
-          <VBtn color="primary" @click="addActorScriptItem()">Adicionar Item ao Roteiro</VBtn>
-        </VCardText>
-      </VCard>
-
-      <!-- Impressos para o Candidato -->
-      <VCard class="mb-6" v-if="stationData.materiaisDisponiveis && stationData.materiaisDisponiveis.impressos">
-        <VCardTitle>Impressos para o Candidato</VCardTitle>
-        <VCardText>
-          <VCard v-for="(impresso, impIndex) in stationData.materiaisDisponiveis.impressos" :key="impresso.idImpresso || 'impresso-' + impIndex" variant="outlined" class="mb-4 pa-4">
-            <div class="d-flex justify-space-between align-center mb-4">
-              <h4 class="text-h6">Impresso {{ impIndex + 1 }}</h4>
-              <VBtn color="error" variant="text" @click="removeFromArray(stationData.materiaisDisponiveis.impressos, impIndex)">Remover Impresso</VBtn>
-            </div>
-            <VRow>
-              <VCol cols="12" md="6">
-                <VTextField label="ID do Impresso (único)" v-model="impresso.idImpresso" required />
-              </VCol>
-              <VCol cols="12" md="6">
-                <VTextField label="Título do Impresso" v-model="impresso.tituloImpresso" required />
-              </VCol>
-              <VCol cols="12">
-                <VSelect
-                  label="Tipo de Conteúdo"
-                  v-model="impresso.tipoConteudo"
-                  :items="[
-                    { title: 'Lista com chave-valor em seções', value: 'lista_chave_valor_secoes' },
-                    { title: 'Tabela de objetos', value: 'tabela_objetos' },
-                    { title: 'Imagem descritiva', value: 'imagem_descritiva' },
-                    { title: 'Imagem com texto', value: 'imagem_com_texto' }
-                  ]"
-                  required
-                  @update:modelValue="atualizarTemplateImpresso(impresso)"
-                />
-              </VCol>
-            </VRow>
-
-            <!-- Editor Dinâmico Baseado no Tipo de Conteúdo -->
-            <div class="mt-4 pt-4 border-t">
-              <!-- Editor para: lista_chave_valor_secoes -->
-              <div v-if="impresso.tipoConteudo === 'lista_chave_valor_secoes'">
-                <VCard v-for="(secao, secIndex) in impresso.conteudo.secoes" :key="secIndex" variant="tonal" class="mb-3">
-                  <VCardText>
-                    <div class="d-flex justify-space-between align-center">
-                      <VTextField label="Título da Seção" v-model="secao.tituloSecao" />
-                      <VBtn icon="ri-delete-bin-line" size="small" variant="text" color="error" @click="removeFromArray(impresso.conteudo.secoes, secIndex)" />
-                    </div>
-                    <div v-for="(item, itemIndex) in secao.itens" :key="itemIndex" class="d-flex align-center gap-2 my-2">
-                      <VTextField label="Chave" v-model="item.chave" />
-                      <VTextField label="Valor" v-model="item.valor" />
-                      <VBtn icon="ri-delete-bin-line" size="x-small" variant="text" color="error" @click="removeFromArray(secao.itens, itemIndex)" />
-                    </div>
-                    <VBtn size="small" color="primary" @click="addToArray(secao.itens, { chave: 'Nova Chave', valor: 'Novo Valor' })">Adicionar Item</VBtn>
-                  </VCardText>
-                </VCard>
-                <VBtn color="secondary" @click="addToArray(impresso.conteudo.secoes, { tituloSecao: 'Nova Seção', itens: [{ chave: 'Chave', valor: 'Valor' }] })">Adicionar Seção</VBtn>
-              </div>
-
-              <!-- Editor para: tabela_objetos -->
-              <div v-if="impresso.tipoConteudo === 'tabela_objetos'">
-                <p class="v-label">Cabeçalhos da Tabela</p>
-                <div v-for="(cab, cabIndex) in impresso.conteudo.cabecalhos" :key="cabIndex" class="d-flex align-center gap-2 my-2">
-                  <VTextField label="Key (identificador)" v-model="cab.key" />
-                  <VTextField label="Label (título)" v-model="cab.label" />
-                  <VBtn icon="ri-delete-bin-line" size="x-small" variant="text" color="error" @click="removeFromArray(impresso.conteudo.cabecalhos, cabIndex)" />
-                </div>
-                <VBtn size="small" color="primary" @click="addToArray(impresso.conteudo.cabecalhos, { key: 'novaKey', label: 'Novo Cabeçalho' })">Adicionar Cabeçalho</VBtn>
-                <VDivider class="my-4" />
-                <p class="v-label">Linhas da Tabela</p>
-                <VTable>
-                  <thead>
-                    <tr>
-                      <th v-for="cab in impresso.conteudo.cabecalhos" :key="cab.key">{{ cab.label }}</th>
-                      <th>Ações</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    <tr v-for="(linha, linhaIndex) in impresso.conteudo.linhas" :key="linhaIndex">
-                      <td v-for="cab in impresso.conteudo.cabecalhos" :key="cab.key">
-                        <VTextField v-model="linha[cab.key]" dense hide-details />
-                      </td>
-                      <td>
-                        <VBtn icon="ri-delete-bin-line" size="x-small" variant="text" color="error" @click="removeFromArray(impresso.conteudo.linhas, linhaIndex)" />
-                      </td>
-                    </tr>
-                  </tbody>
-                </VTable>
-                <VBtn size="small" color="primary" class="mt-2" @click="addToArray(impresso.conteudo.linhas, {})">Adicionar Linha</VBtn>
-              </div>
-
-              <!-- Editor para: imagem_descritiva -->
-              <div v-if="impresso.tipoConteudo === 'imagem_descritiva'">
-                <VTextarea label="Descrição da Imagem" v-model="impresso.conteudo.descricao" rows="3" />
-                <VTextField label="Caminho da Imagem (URL)" v-model="impresso.conteudo.caminhoImagem" />
-              </div>
-
-              <!-- Editor para: imagem_com_texto -->
-              <div v-if="impresso.tipoConteudo === 'imagem_com_texto'">
-                <VTextarea label="Texto Descritivo / Interpretação" v-model="impresso.conteudo.textoDescritivo" rows="3" />
-                <VTextField label="Caminho da Imagem (URL)" v-model="impresso.conteudo.caminhoImagem" />
-                <VTextField label="Legenda da Imagem" v-model="impresso.conteudo.legendaImagem" class="mt-2"/>
-                <VTextarea label="Laudo" v-model="impresso.conteudo.laudo" rows="4" class="mt-2"/>
-              </div>
-            </div>
-          </VCard>
-          <VBtn color="primary" @click="addImpressoItem()">Adicionar Impresso</VBtn>
-        </VCardText>
-      </VCard>
-
-      <!-- PEP - Itens de Avaliação -->
-      <VCard class="mb-6" v-if="stationData.padraoEsperadoProcedimento">
-        <VCardTitle>PEP - Itens de Avaliação</VCardTitle>
-        <VCardSubtitle>Use os botões para adicionar blocos de avaliação padronizados.</VCardSubtitle>
-        <VCardText>
-          <!-- Botão de adaptação manual para Clínica Médica -->
-          <div v-if="stationData.especialidade === 'Clínica Médica'" class="mb-4">
-            <VBtn color="teal-darken-2" @click="adaptarPEPManual" prepend-icon="ri-magic-line">
-              Adaptar para Padrão Clínica Médica
-            </VBtn>
-          </div>
-          <!-- Indicador de Pontuação PEP -->
-          <VCard variant="tonal" :color="pepStats.isValid ? 'success' : 'warning'" class="mb-4">
-            <VCardText>
-              <div class="d-flex justify-space-between align-center">
-                <div>
-                  <h4 class="text-h6 mb-2">📊 Status da Pontuação PEP</h4>
-                  <div class="d-flex gap-4">
-                    <VChip 
-                      :color="pepStats.isValid ? 'success' : 'error'" 
-                      variant="flat"
-                      size="large"
-                    >
-                      Total: {{ pepStats.totalScore }}/10.0 pontos
-                    </VChip>
-                    <VChip variant="outlined">
-                      {{ pepStats.itemCount }} itens
-                    </VChip>
-                    <VChip 
-                      :color="pepStats.isValid ? 'success' : 'warning'" 
-                      variant="outlined"
-                    >
-                      {{ pepStats.isValid ? '✅ Pontuação Correta' : '⚠️ Necessita Correção' }}
-                    </VChip>
-                  </div>
-                </div>
-                <div class="text-right">
-                  <VBtn 
-                    color="primary" 
-                    @click="correctPEPScoring" 
-                    :loading="isLoading"
-                    prepend-icon="ri-calculator-line"
-                    class="mb-2"
-                  >
-                    Corrigir Pontuação
-                  </VBtn>
-                  <br>
-                  <VBtn 
-                    size="small" 
-                    variant="text" 
-                    @click="updatePEPStats"
-                    prepend-icon="ri-refresh-line"
-                  >
-                    Atualizar Stats
-                  </VBtn>
-                </div>
-              </div>
-              
-              <!-- Detalhes dos itens -->
-              <VExpansionPanels v-if="pepStats.items.length > 0" class="mt-4">
-                <VExpansionPanel title="📋 Detalhes dos Itens PEP">
-                  <VExpansionPanelText>
-                    <VTable density="compact">
-                      <thead>
-                        <tr>
-                          <th>Item</th>
-                          <th>Categoria</th>
-                          <th>Adequado</th>
-                          <th>Parcial</th>
-                          <th>Inadequado</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        <tr v-for="(item, index) in pepStats.items" :key="item.id">
-                          <td>{{ index + 1 }}</td>
-                          <td>{{ item.category }}</td>
-                          <td>{{ item.adequado.toFixed(2) }}</td>
-                          <td>{{ item.parcial.toFixed(2) }}</td>
-                          <td>{{ item.inadequado.toFixed(2) }}</td>
-                        </tr>
-                      </tbody>
-                    </VTable>
-                  </VExpansionPanelText>
-                </VExpansionPanel>
-              </VExpansionPanels>
-            </VCardText>
-          </VCard>
-          
-          <div class="d-flex flex-wrap gap-2 mb-4">
-            <VBtn color="indigo-lighten-1" size="small" @click="addStandardPEPItems('apresentacao')">+ Apresentação</VBtn>
-            <VBtn color="blue-lighten-1" size="small" @click="addStandardPEPItems('anamnese')">+ Anamnese</VBtn>
-            <VBtn color="green-lighten-1" size="small" @click="addStandardPEPItems('exameFisico')">+ Exame Físico</VBtn>
-            <VBtn color="purple-lighten-1" size="small" @click="addStandardPEPItems('diagnostico')">+ Diagnóstico e Tratamento</VBtn>
-            <VBtn color="orange-lighten-1" size="small" @click="addStandardPEPItems('diagnosticosDiferenciais')">+ Diagnósticos Diferenciais</VBtn>
-            <VBtn color="cyan-lighten-1" size="small" @click="addStandardPEPItems('examesImagem')">+ Exames de Imagem</VBtn>
-            <VBtn color="pink-lighten-1" size="small" @click="addStandardPEPItems('examesLaboratoriais')">+ Exames Laboratoriais</VBtn>
-          </div>
-
-          <VCard v-for="(itemPEP, pepIndex) in stationData.padraoEsperadoProcedimento.itensAvaliacao" :key="itemPEP.idItem || 'pep-' + pepIndex" variant="outlined" class="mb-4 pa-4">
-            <div class="d-flex justify-space-between align-center mb-4">
-              <h4 class="text-h6">Item do PEP {{ itemPEP.itemNumeroOficial }}</h4>
-              <div>
-                <VBtn icon="ri-arrow-up-line" size="small" variant="text" @click="movePEPItem(pepIndex, 'up')" :disabled="pepIndex === 0" />
-                <VBtn icon="ri-arrow-down-line" size="small" variant="text" @click="movePEPItem(pepIndex, 'down')" :disabled="pepIndex === stationData.padraoEsperadoProcedimento.itensAvaliacao.length - 1" />
-                <VBtn color="error" variant="text" @click="removePEPItem(pepIndex)">Remover</VBtn>
-              </div>
-            </div>
-            <VRow>
-              <VCol cols="12" md="8">
-                <VTextField label="ID do Item (único)" v-model="itemPEP.idItem" required />
-              </VCol>
-              <VCol cols="12" md="4">
-                <VTextField 
-                  label="Nº Oficial"
-                  v-model="itemPEP.itemNumeroOficial"
-                  type="number"
-                  @change="reorderPEPItems(pepIndex)"
-                  hint="Mude o número para reordenar"
-                  persistent-hint
-                />
-              </VCol>
-              <VCol cols="12">
-                <VTextarea label="Descrição do Item" v-model="itemPEP.descricaoItem" rows="3" />
-              </VCol>
-            </VRow>
-            <VCard variant="tonal" class="mt-4" v-if="itemPEP.pontuacoes">
-              <VCardTitle class="text-subtitle-1">Critérios de Pontuação</VCardTitle>
-              <VCardText>
-                <div v-if="itemPEP.pontuacoes.adequado" class="mb-4">
-                  <label class="v-label">Adequado</label>
-                  <TiptapEditor v-model="itemPEP.pontuacoes.adequado.criterio" />
-                  <VTextField label="Pontos" v-model.number="itemPEP.pontuacoes.adequado.pontos" type="number" step="0.01" class="mt-2" />
-                </div>
-                <div v-if="itemPEP.pontuacoes.parcialmenteAdequado" class="mb-4">
-                  <label class="v-label">Parcialmente Adequado</label>
-                  <TiptapEditor v-model="itemPEP.pontuacoes.parcialmenteAdequado.criterio" />
-                  <VTextField label="Pontos" v-model.number="itemPEP.pontuacoes.parcialmenteAdequado.pontos" type="number" step="0.01" class="mt-2" />
-                </div>
-                <div v-if="itemPEP.pontuacoes.inadequado">
-                  <label class="v-label">Inadequado</label>
-                  <TiptapEditor v-model="itemPEP.pontuacoes.inadequado.criterio" />
-                  <VTextField label="Pontos" v-model.number="itemPEP.pontuacoes.inadequado.pontos" type="number" step="0.01" class="mt-2" />
-                </div>
-              </VCardText>
-            </VCard>
-          </VCard>
-          <VBtn color="primary" @click="addPEPItem()">Adicionar Item Manualmente</VBtn>
-        </VCardText>
-      </VCard>
-
-      <!-- Ações Finais -->
-      <VCard>
-        <VCardActions class="pa-4">
-          <VBtn @click="cleanAllTextFields()" color="info" variant="tonal" prepend-icon="ri-broom-line">
-            Limpar Texto
-          </VBtn>
-          <VBtn 
-            @click="correctAllStationsPEP" 
-            color="warning" 
-            variant="tonal" 
-            prepend-icon="ri-database-2-line"
-            :loading="isLoading"
-            class="ml-2"
-            title="Corrige a pontuação PEP de todas as estações no banco de dados"
-          >
-            Corrigir Todas as Estações
-          </VBtn>
-          <VSpacer />
-          <VBtn type="submit" color="success" size="large" :loading="isLoading" prepend-icon="ri-save-line">
-            Salvar Alterações
-          </VBtn>
-        </VCardActions>
-      </VCard>
-    </form>
-
-    <VAlert v-else-if="!isAdmin && !isLoading" type="warning" prominent>
+    <div v-if="!isLoading && !isAdmin" class="status-message-internal erro">
       Você não tem permissão para editar esta estação.
-    </VAlert>
-    <VAlert v-else-if="!isLoading && !errorMessage && !stationData" type="info" prominent>
-      Nenhuma estação carregada ou ID inválido.
-    </VAlert>
-  </VContainer>
+    </div>
+
+    <div v-if="!isLoading && isAdmin && stationId" class="tab-content">
+      <div class="card">
+        <h3>Editando Estação ID: {{ stationId }}</h3>
+        <form @submit.prevent="saveStationChanges" class="manual-form">
+          <h4>Dados Gerais da Estação</h4>
+          <div class="form-group">
+            <label for="manualIdEstacao">ID da Estação (identificador único para o conteúdo, ex: cardio_iam_001):</label>
+            <input type="text" id="manualIdEstacao" v-model="formData.idEstacao" required placeholder="Ex: cardio_iam_001">
+          </div>
+          <div class="form-group">
+            <label for="manualTituloEstacao">Título da Estação (como aparecerá na lista):</label>
+            <input type="text" id="manualTituloEstacao" v-model="formData.tituloEstacao" required placeholder="Ex: Atendimento ao Paciente com Dor Torácica Aguda">
+          </div>
+          
+          <div class="form-group">
+            <label for="manualNumeroDaEstacao">Número da Estação (para ordenação numérica):</label>
+            <input type="number" id="manualNumeroDaEstacao" v-model.number="formData.numeroDaEstacao" required min="1" placeholder="Ex: 1, 2, 10">
+          </div>
+
+          <div class="form-group">
+            <label for="manualEspecialidade">Especialidade (Área):</label>
+            <input type="text" id="manualEspecialidade" v-model="formData.especialidade" required placeholder="Ex: Cardiologia, Clínica Médica">
+          </div>
+          <div class="form-group">
+            <label for="manualTempoDuracaoMinutos">Tempo de Duração (minutos):</label>
+            <input type="number" id="manualTempoDuracaoMinutos" v-model.number="formData.tempoDuracaoMinutos" min="1" required>
+          </div>
+          <div class="form-group">
+            <label for="manualPalavrasChave">Palavras-Chave (separadas por vírgula):</label>
+            <input type="text" id="manualPalavrasChave" v-model="formData.palavrasChave" placeholder="Ex: infarto, ECG, anamnese, dor precordial">
+          </div>
+          <div class="form-group">
+            <label for="manualNivelDificuldade">Nível de Dificuldade:</label>
+            <select id="manualNivelDificuldade" v-model="formData.nivelDificuldade">
+              <option>Fácil</option>
+              <option>Médio</option>
+              <option>Difícil</option>
+            </select>
+          </div>
+
+          <h4>Instruções para o Participante (Candidato)</h4>
+          <div class="form-group">
+            <label for="manualDescricaoCaso">Descrição Completa do Caso para o Candidato:</label>
+            <textarea id="manualDescricaoCaso" v-model="formData.descricaoCasoCompleta" rows="5" required placeholder="Descreva o cenário clínico que o candidato encontrará..."></textarea>
+          </div>
+          <div class="form-group">
+            <label for="manualTarefasPrincipais">Tarefas Principais do Candidato (uma por linha):</label>
+            <textarea id="manualTarefasPrincipais" v-model="formData.tarefasPrincipais" rows="4" required placeholder="Ex: Realizar anamnese completa.&#10;Interpretar o ECG.&#10;Propor conduta inicial."></textarea>
+          </div>
+          <div class="form-group">
+            <label for="manualAvisosImportantes">Avisos Importantes para o Candidato (um por linha, opcional):</label>
+            <textarea id="manualAvisosImportantes" v-model="formData.avisosImportantes" rows="3" placeholder="Ex: O paciente simulado pode apresentar instabilidade.&#10;Comunique-se de forma clara e objetiva com o paciente e/ou acompanhante."></textarea>
+          </div>
+
+          <h4>Cenário de Atendimento (Visível para o Candidato)</h4>
+          <div class="form-group">
+            <label for="manualNivelAtencao">Nível de Atenção:</label>
+            <input type="text" id="manualNivelAtencao" v-model="formData.cenarioAtendimento_nivelAtencao" placeholder="Ex: atenção primária, secundária, terciária">
+          </div>
+          <div class="form-group">
+            <label for="manualTipoAtendimento">Tipo de Atendimento:</label>
+            <input type="text" id="manualTipoAtendimento" v-model="formData.cenarioAtendimento_tipoAtendimento" placeholder="Ex: ambulatorial, emergência, enfermaria">
+          </div>
+          <div class="form-group">
+            <label for="manualInfraestrutura">Infraestrutura da Unidade Disponível (separar por ponto e vírgula ";"):</label>
+            <textarea id="manualInfraestrutura" v-model="formData.cenarioAtendimento_infraestruturaUnidade" rows="3" placeholder="Ex: maca; monitor cardíaco; acesso venoso periférico; materiais para intubação"></textarea>
+          </div>
+
+          <h4>Roteiro do Ator / Informações Verbais (para o Ator/Avaliador)</h4>
+          <div v-for="(info, index) in formData.informacoesVerbaisSimulado" :key="'infoVerbal-'+index" class="dynamic-item-group">
+            <h5>Informação Verbal {{ index + 1 }}</h5>
+            <div class="form-group">
+              <label :for="'infoVerbalContexto' + index">Contexto ou Pergunta-Chave do Candidato:</label>
+              <input type="text" :id="'infoVerbalContexto' + index" v-model="info.contextoOuPerguntaChave" placeholder="Ex: Se o candidato perguntar sobre alergias...">
+            </div>
+            <div class="form-group">
+              <label :for="'infoVerbalInformacao' + index">Informação a ser Fornecida pelo Ator:</label>
+              <textarea :id="'infoVerbalInformacao' + index" v-model="info.informacao" rows="2" placeholder="Ex: Diga que o paciente é alérgico à penicilina."></textarea>
+            </div>
+            <button type="button" @click="removerInfoVerbal(index)" class="remove-item-button">Remover Informação Verbal</button>
+          </div>
+          <button type="button" @click="adicionarInfoVerbal" class="add-item-button">+ Adicionar Informação Verbal</button>
+
+          <h4>Materiais Disponíveis (Impressos a serem liberados pelo Ator/Avaliador)</h4>
+          <div v-for="(impresso, index) in formData.impressos" :key="impresso.idImpresso" class="dynamic-item-group">
+            <h5>Impresso {{ index + 1 }}</h5>
+            <div class="form-group">
+              <label :for="'impressoId' + index">ID do Impresso (único, ex: ecg_inicial):</label>
+              <input type="text" :id="'impressoId' + index" v-model="impresso.idImpresso" required>
+            </div>
+            <div class="form-group">
+              <label :for="'impressoTitulo' + index">Título do Impresso (Ex: ECG de 12 Derivações):</label>
+              <input type="text" :id="'impressoTitulo' + index" v-model="impresso.tituloImpresso" required>
+            </div>
+            <div class="form-group">
+              <label :for="'impressoTipoConteudo' + index">Tipo de Conteúdo do Impresso:</label>
+              <select :id="'impressoTipoConteudo' + index" v-model="impresso.tipoConteudo">
+                <option value="texto_simples">Texto Simples</option>
+                <option value="imagem_com_texto">Imagem com Texto/Laudo</option>
+                <option value="lista_chave_valor_secoes">Lista Chave-Valor (Exames)</option>
+              </select>
+            </div>
+
+            <div v-if="impresso.tipoConteudo === 'texto_simples'" class="form-group">
+              <label :for="'impressoConteudoTexto' + index">Conteúdo (texto):</label>
+              <textarea :id="'impressoConteudoTexto' + index" v-model="impresso.conteudo.texto" rows="3" placeholder="Insira o texto do impresso aqui..."></textarea>
+            </div>
+            <div v-if="impresso.tipoConteudo === 'imagem_com_texto'">
+              <div class="form-group">
+                <label :for="'impressoConteudoImgDesc' + index">Texto Descritivo (opcional):</label>
+                <textarea :id="'impressoConteudoImgDesc' + index" v-model="impresso.conteudo.textoDescritivo" rows="2"></textarea>
+              </div>
+              <div class="form-group">
+                <label :for="'impressoConteudoImgPath' + index">Caminho/URL da Imagem:</label>
+                <input type="text" :id="'impressoConteudoImgPath' + index" v-model="impresso.conteudo.caminhoImagem" placeholder="https://exemplo.com/imagem.jpg">
+              </div>
+              <div class="form-group">
+                <label :for="'impressoConteudoImgLaudo' + index">Laudo da Imagem (opcional):</label>
+                <textarea :id="'impressoConteudoImgLaudo' + index" v-model="impresso.conteudo.laudo" rows="3"></textarea>
+              </div>
+            </div>
+            <div v-if="impresso.tipoConteudo === 'lista_chave_valor_secoes'">
+              <div v-for="(secao, secaoIndex) in impresso.conteudo.secoes" :key="secaoIndex" class="dynamic-item-group-nested">
+                <h5>Seção {{ secaoIndex + 1 }}</h5>
+                <div class="form-group">
+                  <label :for="'secaoTitulo' + index + '_' + secaoIndex">Título da Seção:</label>
+                  <input type="text" :id="'secaoTitulo' + index + '_' + secaoIndex" v-model="secao.tituloSecao" placeholder="Ex: Hemograma">
+                </div>
+                <div v-for="(itemSecao, itemSecaoIndex) in secao.itens" :key="itemSecaoIndex" class="dynamic-item-group-very-nested">
+                  <input type="text" v-model="itemSecao.chave" placeholder="Chave (Ex: Hb)" style="flex-basis: 40%;">
+                  <input type="text" v-model="itemSecao.valor" placeholder="Valor (Ex: 12.5 g/dL)" style="flex-basis: 40%;">
+                  <button type="button" @click="secao.itens.splice(itemSecaoIndex, 1)" class="remove-item-button-small" style="flex-basis: auto;">X</button>
+                </div>
+                <button type="button" @click="secao.itens.push({chave: '', valor: ''})" class="add-item-button-small">+ Item na Seção</button>
+                <button type="button" @click="impresso.conteudo.secoes.splice(secaoIndex, 1)" class="remove-item-button" style="margin-top: 5px; float: right;">Remover Seção</button>
+              </div>
+              <button type="button" @click="impresso.conteudo.secoes.push({tituloSecao: '', itens: [{chave:'', valor:''}]})" class="add-item-button" style="clear:both; display:block;">+ Seção no Impresso</button>
+            </div>
+            <button type="button" @click="removerImpresso(index)" class="remove-item-button">Remover Impresso</button>
+          </div>
+          <button type="button" @click="adicionarImpresso" class="add-item-button">+ Adicionar Impresso</button>
+
+          <h4>Padrão Esperado de Procedimento (PEP / Checklist para Avaliador)</h4>
+          <div class="form-group">
+            <label for="pepIdChecklist">ID do Checklist (Identificador único para este PEP):</label>
+            <input type="text" id="pepIdChecklist" v-model="formData.padraoEsperadoProcedimento.idChecklistAssociado" placeholder="Ex: pep_cardio_iam_001">
+          </div>
+          
+          <div class="form-group">
+            <label for="pepResumoCaso">Síntese da Estação - Resumo do Caso Clínico para o PEP:</label>
+            <textarea id="pepResumoCaso" v-model="formData.padraoEsperadoProcedimento.sinteseEstacao.resumoCasoPEP" rows="3" placeholder="Breve resumo do caso para orientar o avaliador..."></textarea>
+          </div>
+          
+          <div class="form-group">
+            <label>Síntese da Estação - Foco Principal Detalhado do PEP (um por linha):</label>
+            <div v-for="(foco, index) in formData.padraoEsperadoProcedimento.sinteseEstacao.focoPrincipalDetalhado" :key="'focoPep-' + index" class="foco-pep-item">
+              <input type="text" v-model="formData.padraoEsperadoProcedimento.sinteseEstacao.focoPrincipalDetalhado[index]" :placeholder="'Foco principal ' + (index + 1) + ' da avaliação...'">
+              <button type="button" @click="removerFocoPrincipalPEP(index)" class="remove-item-button-small" title="Remover Foco">X</button>
+            </div>
+            <button type="button" @click="adicionarFocoPrincipalPEP" class="add-item-button-small">+ Adicionar Foco Principal</button>
+          </div>
+
+          <h5>Itens de Avaliação do PEP</h5>
+          <div v-for="(item, index) in formData.padraoEsperadoProcedimento.itensAvaliacao" :key="item.idItem" class="dynamic-item-group pep-item">
+            <h6>Item de Avaliação {{ index + 1 }}</h6>
+            <div class="form-group">
+              <label :for="'pepItemId' + index">ID do Item (único no checklist, ex: anamnese_dor):</label>
+              <input type="text" :id="'pepItemId' + index" v-model="item.idItem" required>
+            </div>
+            <div class="form-group">
+              <label :for="'pepItemNumero' + index">Número Oficial do Item (Ex: 1.a, 2.1):</label>
+              <input type="text" :id="'pepItemNumero' + index" v-model="item.itemNumeroOficial" placeholder="Ex: 1.1">
+            </div>
+            <div class="form-group">
+              <label :for="'pepItemDescricao' + index">Descrição do Item de Avaliação:</label>
+              <textarea :id="'pepItemDescricao' + index" v-model="item.descricaoItem" rows="2" required placeholder="Descreva o que deve ser avaliado..."></textarea>
+            </div>
+            <fieldset class="pontuacoes-group">
+              <legend>Critérios e Pontuações do Item</legend>
+              <div>
+                <label :for="'pepItemAdequadoCriterio' + index">Critério - Adequado:</label>
+                <input type="text" :id="'pepItemAdequadoCriterio' + index" v-model="item.pontuacoes.adequado.criterio" placeholder="Ex: Realizou completamente e corretamente.">
+                <label :for="'pepItemAdequadoPontos' + index">Pontos:</label>
+                <input type="number" step="0.01" :id="'pepItemAdequadoPontos' + index" v-model.number="item.pontuacoes.adequado.pontos">
+              </div>
+              <div>
+                <label :for="'pepItemParcialCriterio' + index">Critério - Parcialmente Adequado:</label>
+                <input type="text" :id="'pepItemParcialCriterio' + index" v-model="item.pontuacoes.parcialmenteAdequado.criterio" placeholder="Ex: Realizou parcialmente ou com pequenas falhas.">
+                <label :for="'pepItemParcialPontos' + index">Pontos:</label>
+                <input type="number" step="0.01" :id="'pepItemParcialPontos' + index" v-model.number="item.pontuacoes.parcialmenteAdequado.pontos">
+              </div>
+              <div>
+                <label :for="'pepItemInadequadoCriterio' + index">Critério - Inadequado / Não Fez:</label>
+                <input type="text" :id="'pepItemInadequadoCriterio' + index" v-model="item.pontuacoes.inadequado.criterio" placeholder="Ex: Não realizou ou realizou incorretamente.">
+                <label :for="'pepItemInadequadoPontos' + index">Pontos:</label>
+                <input type="number" step="0.01" :id="'pepItemInadequadoPontos' + index" v-model.number="item.pontuacoes.inadequado.pontos">
+              </div>
+            </fieldset>
+            <button type="button" @click="removerItemAvaliacaoPEP(index)" class="remove-item-button">Remover Item de Avaliação</button>
+          </div>
+          <button type="button" @click="adicionarItemAvaliacaoPEP" class="add-item-button">+ Adicionar Item de Avaliação</button>
+
+          <div class="form-group pep-total-score-display">
+            <label for="pepPontuacaoTotal">Pontuação Total Máxima da Estação (PEP):</label>
+            <input type="number" step="0.01" id="pepPontuacaoTotal" v-model.number="formData.padraoEsperadoProcedimento.pontuacaoTotalEstacao" readonly title="Calculado automaticamente com base nos pontos 'Adequado' de cada item.">
+            <span v-if="typeof calcularPontuacaoTotalPEP === 'number'">(Calculado: {{ calcularPontuacaoTotalPEP.toFixed(2) }})</span>
+            <span v-else>(Calculado: N/A)</span>
+          </div>
+
+          <button type="submit" :disabled="isSaving" class="save-manual-button">
+            <span v-if="isSaving">Salvando Alterações...</span>
+            <span v-else">Salvar Alterações da Estação</span>
+          </button>
+        </form>
+      </div>
+    </div>
+  </div>
 </template>
 
 <style scoped>
-.v-label {
-  font-size: 0.875rem;
+.admin-upload-page { 
+  max-width: 950px; 
+  margin: 20px auto; 
+  padding: 20px; 
+  font-family: 'Inter', sans-serif; 
+}
+
+.admin-upload-page h2 { 
+  text-align: center; 
+  color: #2c3e50; 
+  margin-bottom: 25px; 
+  font-weight: 600; 
+}
+
+.loading-container {
+  text-align: center;
+  padding: 40px;
+}
+
+.loading-spinner {
+  width: 40px;
+  height: 40px;
+  border: 4px solid #f3f3f3;
+  border-top: 4px solid #007bff;
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+  margin: 0 auto 20px;
+}
+
+@keyframes spin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
+.back-button, .delete-button {
+  padding: 10px 20px;
+  border: none;
+  border-radius: 5px;
+  cursor: pointer;
   font-weight: 500;
-  margin-bottom: 0.5rem;
-  display: block;
+  transition: background-color 0.2s;
 }
 
-.array-item-editor-simple {
-  display: flex;
-  align-items: flex-start;
-  gap: 8px;
-  margin-bottom: 8px;
+.back-button {
+  background-color: #6c757d;
+  color: white;
 }
 
-.array-item-editor-simple .v-text-field {
-  flex-grow: 1;
+.back-button:hover {
+  background-color: #5a6268;
 }
 
-/* Estilos para o editor Tiptap */
-:deep(.tiptap-editor) {
-  border: 1px solid rgba(var(--v-border-color), var(--v-border-opacity));
+.delete-button {
+  background-color: #dc3545;
+  color: white;
+}
+
+.delete-button:hover:not(:disabled) {
+  background-color: #c82333;
+}
+
+.delete-button:disabled {
+  background-color: #adb5bd;
+  cursor: not-allowed;
+}
+
+.tab-content .card { 
+  background-color: #ffffff; 
+  padding: 30px; 
+  border: 1px solid #e0e0e0; 
+  border-radius: 8px; 
+  box-shadow: 0 4px 12px rgba(0,0,0,0.08); 
+}
+
+.tab-content .card h3 { 
+  margin-top: 0; 
+  color: #0056b3; 
+  border-bottom: 1px solid #eaeaea; 
+  padding-bottom: 12px; 
+  margin-bottom: 25px; 
+  font-weight: 600; 
+}
+
+.manual-form .form-group { 
+  margin-bottom: 20px; 
+}
+
+.manual-form label { 
+  display: block; 
+  margin-bottom: 6px; 
+  font-weight: 500; 
+  color: #34495e; 
+  font-size: 0.95em; 
+}
+
+.manual-form input[type="text"],
+.manual-form input[type="number"],
+.manual-form select,
+.manual-form textarea {
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid #ced4da;
   border-radius: 4px;
-  padding: 8px;
+  box-sizing: border-box;
+  font-size: 1em;
+  transition: border-color 0.2s ease-in-out, box-shadow 0.2s ease-in-out;
 }
 
-:deep(.toolbar) {
-  border-bottom: 1px solid rgba(var(--v-border-color), var(--v-border-opacity));
-  margin-bottom: 8px;
-  padding-bottom: 8px;
+.manual-form input[type="text"]:focus,
+.manual-form input[type="number"]:focus,
+.manual-form select:focus,
+.manual-form textarea:focus {
+  border-color: #007bff;
+  box-shadow: 0 0 0 0.2rem rgba(0,123,255,.25);
+  outline: none;
 }
 
-:deep(.editor-content) {
-  min-height: 120px;
+.manual-form textarea { 
+  resize: vertical; 
+  min-height: 80px; 
 }
 
-:deep(.editor-content p) {
-  margin-bottom: 0.5em;
+.manual-form h4 { 
+  margin-top: 35px; 
+  margin-bottom: 20px; 
+  color: #0056b3; 
+  border-bottom: 1px solid #e0e0e0; 
+  padding-bottom: 10px; 
+  font-weight: 600; 
+  font-size: 1.2em; 
 }
 
-.flex-grow-1 {
+.manual-form h5 { 
+  margin-top: 25px; 
+  margin-bottom: 15px; 
+  color: #17a2b8; 
+  font-weight: 500; 
+  font-size: 1.1em; 
+}
+
+.manual-form h6 { 
+  margin-top: 18px; 
+  margin-bottom: 12px; 
+  color: #28a745; 
+  font-weight: 500; 
+  font-size: 1.05em;
+}
+
+.dynamic-item-group {
+  background-color: #f9f9f9;
+  border: 1px solid #e7e7e7;
+  border-left: 4px solid #6c757d;
+  border-radius: 5px;
+  padding: 20px;
+  margin-bottom: 25px;
+  position: relative;
+}
+
+.dynamic-item-group h5, .dynamic-item-group h6 { 
+  margin-top: 0; 
+}
+
+.dynamic-item-group-nested {
+  background-color: #f0f0f0;
+  border: 1px solid #d0d0d0;
+  border-left: 3px solid #17a2b8;
+  padding: 15px;
+  margin-top: 10px;
+  margin-bottom: 10px;
+  border-radius: 4px;
+}
+
+.dynamic-item-group-very-nested {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  margin-bottom: 5px;
+  padding-left: 10px;
+}
+
+.dynamic-item-group-very-nested input[type="text"] {
   flex-grow: 1;
+}
+
+.pep-item { 
+  border-left-color: #28a745; 
+}
+
+.foco-pep-item { 
+  display: flex; 
+  align-items: center; 
+  margin-bottom: 8px; 
+}
+
+.foco-pep-item input[type="text"] { 
+  flex-grow: 1; 
+  margin-right: 8px; 
+}
+
+.add-item-button, .remove-item-button {
+  border: none; 
+  padding: 8px 15px; 
+  border-radius: 4px; 
+  cursor: pointer; 
+  font-size: 0.9em; 
+  margin-top: 10px; 
+  transition: background-color 0.2s, transform 0.1s;
+  font-weight: 500;
+}
+
+.add-item-button { 
+  background-color: #007bff; 
+  color: white; 
+  margin-bottom: 20px; 
+  display: inline-block; 
+}
+
+.remove-item-button { 
+  background-color: #dc3545; 
+  color: white; 
+}
+
+.dynamic-item-group > .remove-item-button {
+  position: absolute;
+  top: 15px;
+  right: 15px;
+  margin-top: 0;
+  padding: 6px 10px;
+}
+
+.add-item-button:hover:not(:disabled) { 
+  background-color: #0056b3; 
+  transform: translateY(-1px); 
+}
+
+.remove-item-button:hover:not(:disabled) { 
+  background-color: #c82333; 
+  transform: translateY(-1px); 
+}
+
+.add-item-button-small, .remove-item-button-small {
+  padding: 5px 10px; 
+  font-size: 0.85em; 
+  margin-left: 8px; 
+  border-radius: 3px;
+  border: none; 
+  color: white; 
+  cursor: pointer;
+}
+
+.add-item-button-small { 
+  background-color: #5cb85c; 
+}
+
+.remove-item-button-small { 
+  background-color: #fd7e14; 
+}
+
+.add-item-button-small:hover { 
+  background-color: #4cae4c;
+}
+
+.remove-item-button-small:hover { 
+  background-color: #e6690b;
+}
+
+.pontuacoes-group { 
+  border: 1px solid #ced4da; 
+  padding: 15px; 
+  margin-top:15px; 
+  border-radius: 4px; 
+  background-color: #fff; 
+}
+
+.pontuacoes-group legend { 
+  font-size: 1em; 
+  font-weight: 500; 
+  padding: 0 8px; 
+  color: #495057; 
+  margin-bottom: 10px;
+}
+
+.pontuacoes-group > div { 
+  margin-bottom: 12px; 
+  display: grid; 
+  grid-template-columns: auto 1fr auto 80px; 
+  gap: 8px 12px; 
+  align-items: center;
+}
+
+.pontuacoes-group > div > label:first-child { 
+  font-weight:normal; 
+  font-size:0.9em; 
+  color: #495057;
+}
+
+.pontuacoes-group > div > label:nth-of-type(2) { 
+  font-weight:normal; 
+  font-size:0.9em; 
+  justify-self: end; 
+  color: #495057;
+}
+
+.pontuacoes-group input[type="text"], .pontuacoes-group input[type="number"] { 
+  font-size: 0.95em; 
+  padding: 8px 10px;
+}
+
+.pep-total-score-display { 
+  margin-top: 20px; 
+  padding-top:15px; 
+  border-top: 1px solid #eee;
+}
+
+.pep-total-score-display label { 
+  font-weight: 600; 
+}
+
+.pep-total-score-display input[type="number"] { 
+  background-color: #e9ecef; 
+  cursor: not-allowed; 
+  width: auto; 
+  display: inline-block; 
+  max-width:100px; 
+  margin-right: 10px;
+}
+
+.pep-total-score-display span { 
+  font-size: 0.9em; 
+  color: #495057;
+}
+
+.save-manual-button { 
+  display: block; 
+  width: 100%; 
+  padding: 14px; 
+  font-size: 1.15em; 
+  font-weight: 600; 
+  color: white; 
+  background-color: #17a2b8; 
+  border: none; 
+  border-radius: 5px; 
+  cursor: pointer; 
+  margin-top: 30px; 
+  transition: background-color 0.2s, transform 0.1s; 
+}
+
+.save-manual-button:hover:not(:disabled) { 
+  background-color: #138496; 
+  transform: translateY(-1px); 
+}
+
+.save-manual-button:disabled { 
+  background-color: #adb5bd; 
+  cursor: not-allowed; 
+}
+
+.status-message-internal { 
+  margin-top: 20px; 
+  padding: 15px; 
+  border-radius: 5px; 
+  font-weight: 500; 
+  border: 1px solid transparent; 
+  line-height: 1.5;
+}
+
+.status-message-internal.info { 
+  background-color: #e6f7ff; 
+  color: #005f87; 
+  border-color: #91d5ff; 
+}
+
+.status-message-internal.sucesso { 
+  background-color: #f6ffed; 
+  color: #389e0d; 
+  border-color: #b7eb8f; 
+}
+
+.status-message-internal.erro { 
+  background-color: #fff1f0; 
+  color: #cf1322; 
+  border-color: #ffa39e; 
 }
 </style>

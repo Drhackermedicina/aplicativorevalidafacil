@@ -1,6 +1,5 @@
 <script setup>
 // Imports
-
 import { currentUser } from '@/plugins/auth.js';
 import { db } from '@/plugins/firebase.js';
 import { registrarConclusaoEstacao } from '@/services/stationEvaluationService.js';
@@ -112,6 +111,17 @@ function formatActorText(text) {
   return formattedLines.join('');
 }
 
+// Adiciona função para edição
+function editStationData(field, value) {
+  if (stationData.value) {
+    stationData.value[field] = value;  // Atualiza o campo
+    // Reaplica formatação se necessário
+    if (field === 'descricaoCasoCompleta' || field.includes('informacoesVerbaisSimulado')) {
+      stationData.value[field] = formatActorText(value);  // Mantém formatação
+    }
+  }
+}
+
 // Refs para dados da estação e checklist
 const stationData = ref(null);
 const checklistData = ref(null);
@@ -165,7 +175,13 @@ const isCandidate = computed(() => userRole.value === 'candidate');
 const inviteLinkToShow = ref('');
 const copySuccess = ref(false);
 
-
+const isAdmin = computed(() => {
+  return currentUser.value && (
+    currentUser.value.uid === 'KiSITAxXMAY5uU3bOPW5JMQPent2' ||
+    currentUser.value.uid === 'RtfNENOqMUdw7pvgeeaBVSuin662' ||
+    currentUser.value.uid === 'lNwhdYgMwLhS1ZyufRzw9xLD10y1'
+  );
+});
 
 // Refs para estado de prontidão e controle da simulação
 const myReadyState = ref(false);
@@ -217,7 +233,13 @@ function formatItemDescriptionForDisplay(descriptionText, itemTitle = '') {
     const regex = new RegExp('^' + itemTitle.replace(/[.*+?^${}()|[\\]/g, '\\$&') + '\s*:', 'i');
     desc = desc.replace(regex, '').trim();
   } else {
+    // Se não tiver título específico, remove qualquer coisa antes dos dois pontos
     desc = desc.replace(/^([^:]+):/, '').trim();
+  }
+
+  // Se a descrição ficou vazia após remover o título, retorna vazio
+  if (!desc) {
+    return '';
   }
 
   // Remove 'e,' e 'e' desnecessários
@@ -257,21 +279,7 @@ async function fetchSimulationData(currentStationId) {
     if (!stationSnap.exists()) { throw new Error(`Estação ${currentStationId} não encontrada.`); }
     stationData.value = { id: stationSnap.id, ...stationSnap.data() };
     console.log("FETCH: Estação Carregada:", stationData.value?.tituloEstacao);
-    // --- NOVO: Normaliza o checklistData ---
-    let pep = stationData.value?.padraoEsperadoProcedimento;
-    if (pep) {
-      if (Array.isArray(pep.itensAvaliacao) && pep.itensAvaliacao.length > 0) {
-        checklistData.value = pep;
-      } else if (pep.sinteseEstacao && Array.isArray(pep.sinteseEstacao.itensAvaliacao) && pep.sinteseEstacao.itensAvaliacao.length > 0) {
-        pep.itensAvaliacao = pep.sinteseEstacao.itensAvaliacao;
-        checklistData.value = pep;
-      } else {
-        checklistData.value = null;
-        console.warn("FETCH: PEP não contém 'itensAvaliacao' válidos nem em sinteseEstacao.");
-      }
-    } else {
-      checklistData.value = null;
-    }
+
     const durationFromQuery = route.query.duration ? parseInt(route.query.duration) : null;
     const validOptions = [5, 6, 7, 8, 9, 10];
 
@@ -1358,9 +1366,6 @@ function getInfrastructureColor(infraItem) {
 }
 
 // Função Adicionada: divide o texto em parágrafos para exibição
-
-
-
 function splitIntoParagraphs(text) {
   if (!text) return [];
   
@@ -1379,6 +1384,11 @@ function splitIntoParagraphs(text) {
 
 // Função para verificar se um texto está em maiúsculo (pelo menos 3 caracteres consecutivos)
 function isUpperCase(text) {
+  // Adicionado para evitar erros com valores indefinidos
+  if (!text || typeof text !== 'string') {
+    return false;
+  }
+
   // Remove tags HTML para fazer a verificação apenas no texto puro
   const plainText = text.replace(/<[^>]*>/g, '');
   
@@ -1555,7 +1565,6 @@ function processInfrastructureItems(items) {
 
             <!-- Timer e Controles (Visão Ator/Avaliador) -->
             <div v-if="isActorOrEvaluator" class="d-flex align-center gap-3">
-              
               <div v-if="!simulationStarted && !simulationEnded" style="width: 150px;">
                 <VSelect
                   v-model="selectedDurationMinutes"
@@ -1733,17 +1742,6 @@ function processInfrastructureItems(items) {
                     </ul>
                 </VCardText>
             </VCard>
-            <VCard class="mb-6" v-else>
-                <VCardItem>
-                    <template #prepend>
-                        <VIcon icon="ri-task-line" color="grey" />
-                    </template>
-                    <VCardTitle>Tarefas do Candidato</VCardTitle>
-                </VCardItem>
-                <VCardText>
-                    <p class="text-body-1">Nenhuma tarefa específica foi definida para esta estação.</p>
-                </VCardText>
-            </VCard>
 
             <!-- Card para Roteiro / Informações Verbais do Ator -->
             <VCard class="mb-6" v-if="stationData?.materiaisDisponiveis?.informacoesVerbaisSimulado && stationData.materiaisDisponiveis.informacoesVerbaisSimulado.length > 0">
@@ -1898,7 +1896,8 @@ function processInfrastructureItems(items) {
                         <span v-if="item.itemNumeroOficial">{{ item.itemNumeroOficial }}. </span>
                         {{ item.descricaoItem ? item.descricaoItem.split(':')[0].trim() : 'Item' }}
                       </p>
-                      <p class="text-body-2" v-html="formatItemDescriptionForDisplay(item.descricaoItem, item.descricaoItem ? item.descricaoItem.split(':')[0].trim() : '')" />
+                      <!-- Apenas a descrição formatada, sem duplicar o título -->
+                      <div class="text-body-2" v-if="item.descricaoItem && item.descricaoItem.includes(':')" v-html="formatItemDescriptionForDisplay(item.descricaoItem, item.descricaoItem.split(':')[0].trim())" />
                       
                       <!-- Critérios de Avaliação Integrados -->
                       <div class="criterios-integrados mt-2 border-l-2 pl-4">
@@ -2170,7 +2169,8 @@ function processInfrastructureItems(items) {
                                   <span v-if="item.itemNumeroOficial">{{ item.itemNumeroOficial }}. </span>
                                   {{ item.descricaoItem ? item.descricaoItem.split(':')[0].trim() : 'Item' }}
                                 </p>
-                                <p class="text-body-2" v-html="formatItemDescriptionForDisplay(item.descricaoItem, item.descricaoItem ? item.descricaoItem.split(':')[0].trim() : '')" />
+                                <!-- Apenas a descrição formatada, sem duplicar o título -->
+                                <div class="text-body-2" v-if="item.descricaoItem && item.descricaoItem.includes(':')" v-html="formatItemDescriptionForDisplay(item.descricaoItem, item.descricaoItem.split(':')[0].trim())" />
                                 
                                 <!-- Critérios de Avaliação Integrados para o Candidato -->
                                 <div class="criterios-integrados mt-2 border-l-2 pl-4">
@@ -2373,9 +2373,6 @@ function processInfrastructureItems(items) {
     <VSnackbar v-model="showNotificationSnackbar" :color="notificationColor" timeout="5000">
       {{ notificationMessage }}
     </VSnackbar>
-
-    
-    
   </div>
 </template>
 

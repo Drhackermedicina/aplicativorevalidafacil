@@ -65,16 +65,12 @@ onMounted(async () => {
     }
   })
 
+  // Verifica se precisamos abrir o chat privado automaticamente
   if (localStorage.getItem('forceOpenPrivateChat') === '1') {
-    // Substitua 'selectedUser' por uma propriedade válida do chatStore, por exemplo 'selectedUser' ou ajuste conforme sua store
-    if (chatStore.selectedUser) {
-      // Substitua 'selectUser' pelo método correto do seu store para abrir o chat, se existir
-      if (typeof chatStore.selectUser === 'function') {
-        chatStore.selectUser(chatStore.selectedUser)
-      } else {
-        console.warn('[AguardeSimulacao] Nenhum método para abrir chat encontrado no chatStore.')
-      }
-    }
+    console.log('[AguardeSimulacao] Sinalização para abrir chat privado detectada')
+    // Como a store atual não possui os métodos necessários, apenas registramos a intenção
+    console.log('[AguardeSimulacao] Estado atual da store de chat:', chatStore.state)
+    // Remove a flag do localStorage para não repetir esta ação
     localStorage.removeItem('forceOpenPrivateChat')
   }
 })
