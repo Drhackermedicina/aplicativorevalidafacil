@@ -259,6 +259,11 @@ function loadStationIntoForm(stationData) {
   }
   
   form.padraoEsperadoProcedimento.pontuacaoTotalEstacao = parseFloat(jsonPep.pontuacaoTotalEstacao) || 0;
+  
+  // Atualiza números oficiais dos itens após carregar
+  setTimeout(() => {
+    atualizarNumerosOficiaisItens();
+  }, 100);
 }
 
 // Função para construir objeto da estação
@@ -515,9 +520,10 @@ const showPositionDialog = ref(false);
 const newItemPosition = ref(null);
 
 function adicionarItemAvaliacaoPEP() {
+  const proximaPos = formData.value.padraoEsperadoProcedimento.itensAvaliacao.length + 1;
   const novoItem = {
-    idItem: `itempep_${Date.now()}_${formData.value.padraoEsperadoProcedimento.itensAvaliacao.length + 1}`,
-    itemNumeroOficial: '',
+    idItem: `itempep_${Date.now()}_${proximaPos}`,
+    itemNumeroOficial: proximaPos.toString(),
     descricaoItem: '',
     pontuacoes: {
       adequado: { criterio: 'Realizou corretamente e completamente.', pontos: 0 },
@@ -532,6 +538,8 @@ function adicionarItemAvaliacaoPEP() {
     showPositionDialog.value = true;
   } else {
     formData.value.padraoEsperadoProcedimento.itensAvaliacao.push(novoItem);
+    // Atualiza números oficiais após adicionar
+    atualizarNumerosOficiaisItens();
   }
 }
 
@@ -543,6 +551,9 @@ function adicionarItemNaPosicao(posicao) {
       const index = parseInt(posicao) - 1; // Converte posição 1-based para index 0-based
       formData.value.padraoEsperadoProcedimento.itensAvaliacao.splice(index, 0, newItemPosition.value);
     }
+    
+    // Atualiza números oficiais após adicionar
+    atualizarNumerosOficiaisItens();
     
     // Reset dialog
     newItemPosition.value = null;
@@ -558,6 +569,8 @@ function cancelarAdicaoItem() {
 function removerItemAvaliacaoPEP(index) {
   if (formData.value.padraoEsperadoProcedimento.itensAvaliacao.length > 1) {
     formData.value.padraoEsperadoProcedimento.itensAvaliacao.splice(index, 1);
+    // Atualiza números oficiais após remover
+    atualizarNumerosOficiaisItens();
   }
 }
 
@@ -568,6 +581,8 @@ function moverItemPEPParaCima(index) {
     const item = itens[index];
     itens.splice(index, 1);
     itens.splice(index - 1, 0, item);
+    // Atualiza números oficiais após mover
+    atualizarNumerosOficiaisItens();
   }
 }
 
@@ -577,6 +592,8 @@ function moverItemPEPParaBaixo(index) {
     const item = itens[index];
     itens.splice(index, 1);
     itens.splice(index + 1, 0, item);
+    // Atualiza números oficiais após mover
+    atualizarNumerosOficiaisItens();
   }
 }
 
@@ -588,8 +605,27 @@ function moverItemPEPParaPosicao(index, novaPosicao) {
     const item = itens[index];
     itens.splice(index, 1);
     itens.splice(novoIndex, 0, item);
+    // Atualiza números oficiais após mover
+    atualizarNumerosOficiaisItens();
   }
 }
+
+// Função para atualizar números oficiais dos itens com base na posição
+function atualizarNumerosOficiaisItens() {
+  if (formData.value.padraoEsperadoProcedimento?.itensAvaliacao) {
+    formData.value.padraoEsperadoProcedimento.itensAvaliacao.forEach((item, index) => {
+      item.itemNumeroOficial = (index + 1).toString();
+    });
+  }
+}
+
+// Watch para monitorar mudanças na ordem dos itens e atualizar números oficiais
+watch(
+  () => formData.value.padraoEsperadoProcedimento?.itensAvaliacao?.map(item => item.idItem).join(','),
+  () => {
+    atualizarNumerosOficiaisItens();
+  }
+);
 
 // Lifecycle
 onMounted(() => {
@@ -720,7 +756,7 @@ watch(() => route.params.id, (newId) => {
           <h4>Materiais Disponíveis (Impressos a serem liberados pelo Ator/Avaliador)</h4>
           <div v-for="(impresso, index) in formData.impressos" :key="impresso.idImpresso" class="dynamic-item-group">
             <h5>Impresso {{ index + 1 }}</h5>
-            <div class="form-group">
+            <div class="form-group" style="display: none;">
               <label :for="'impressoId' + index">ID do Impresso (único, ex: ecg_inicial):</label>
               <input type="text" :id="'impressoId' + index" v-model="impresso.idImpresso" required>
             </div>
@@ -779,17 +815,17 @@ watch(() => route.params.id, (newId) => {
           <button type="button" @click="adicionarImpresso" class="add-item-button">+ Adicionar Impresso</button>
 
           <h4>Padrão Esperado de Procedimento (PEP / Checklist para Avaliador)</h4>
-          <div class="form-group">
+          <div class="form-group" style="display: none;">
             <label for="pepIdChecklist">ID do Checklist (Identificador único para este PEP):</label>
             <input type="text" id="pepIdChecklist" v-model="formData.padraoEsperadoProcedimento.idChecklistAssociado" placeholder="Ex: pep_cardio_iam_001">
           </div>
           
-          <div class="form-group">
+          <div class="form-group" style="display: none;">
             <label for="pepResumoCaso">Síntese da Estação - Resumo do Caso Clínico para o PEP:</label>
             <textarea id="pepResumoCaso" v-model="formData.padraoEsperadoProcedimento.sinteseEstacao.resumoCasoPEP" rows="3" placeholder="Breve resumo do caso para orientar o avaliador..."></textarea>
           </div>
           
-          <div class="form-group">
+          <div class="form-group" style="display: none;">
             <label>Síntese da Estação - Foco Principal Detalhado do PEP (um por linha):</label>
             <div v-for="(foco, index) in formData.padraoEsperadoProcedimento.sinteseEstacao.focoPrincipalDetalhado" :key="'focoPep-' + index" class="foco-pep-item">
               <input type="text" v-model="formData.padraoEsperadoProcedimento.sinteseEstacao.focoPrincipalDetalhado[index]" :placeholder="'Foco principal ' + (index + 1) + ' da avaliação...'">
@@ -837,13 +873,13 @@ watch(() => route.params.id, (newId) => {
                 <button type="button" @click="removerItemAvaliacaoPEP(index)" class="remove-item-button-header">Remover Item</button>
               </div>
             </div>
-            <div class="form-group">
+            <div class="form-group" style="display: none;">
               <label :for="'pepItemId' + index">ID do Item (único no checklist, ex: anamnese_dor):</label>
               <input type="text" :id="'pepItemId' + index" v-model="item.idItem" required>
             </div>
-            <div class="form-group">
-              <label :for="'pepItemNumero' + index">Número Oficial do Item (Ex: 1.a, 2.1):</label>
-              <input type="text" :id="'pepItemNumero' + index" v-model="item.itemNumeroOficial" placeholder="Ex: 1.1">
+            <div class="form-group" style="display: none;">
+              <label :for="'pepItemNumero' + index">Número Oficial do Item (Automático - baseado na posição):</label>
+              <input type="text" :id="'pepItemNumero' + index" v-model="item.itemNumeroOficial" readonly title="Este valor é atualizado automaticamente com base na posição do item">
             </div>
             <div class="form-group">
               <label :for="'pepItemDescricao' + index">Descrição do Item de Avaliação:</label>
