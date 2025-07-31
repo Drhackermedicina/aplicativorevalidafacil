@@ -1972,6 +1972,35 @@ function processInfrastructureItems(items) {
               <VAlert v-if="simulationEnded && simulationWasManuallyEndedEarly" type="warning" density="compact" class="ma-2">
                 A estação foi encerrada manualmente. A submissão de nota ainda é permitida, mas o ato fica registrado.
               </VAlert>
+              
+              <!-- Feedback da Estação (para ator/avaliador - sempre visível) -->
+              <VCardText v-if="checklistData?.feedbackEstacao">
+                <VExpansionPanels variant="accordion" class="mt-2">
+                  <VExpansionPanel>
+                    <VExpansionPanelTitle>
+                      <div class="d-flex align-center">
+                        <VIcon icon="ri-information-line" color="info" class="me-2" />
+                        Feedback Técnico da Estação
+                      </div>
+                    </VExpansionPanelTitle>
+                    <VExpansionPanelText>
+                      <div v-if="checklistData.feedbackEstacao.resumoTecnico" class="mb-4">
+                        <h5 class="text-subtitle-1 font-weight-bold mb-2">Resumo Técnico:</h5>
+                        <p class="text-body-2" v-html="checklistData.feedbackEstacao.resumoTecnico"></p>
+                      </div>
+                      <div v-if="checklistData.feedbackEstacao.fontes">
+                        <h5 class="text-subtitle-1 font-weight-bold mb-2">Fontes:</h5>
+                        <ul v-if="Array.isArray(checklistData.feedbackEstacao.fontes)" class="text-caption">
+                          <li v-for="(fonte, index) in checklistData.feedbackEstacao.fontes" :key="index" class="mb-1">
+                            {{ fonte }}
+                          </li>
+                        </ul>
+                        <p v-else class="text-caption" v-html="checklistData.feedbackEstacao.fontes"></p>
+                      </div>
+                    </VExpansionPanelText>
+                  </VExpansionPanel>
+                </VExpansionPanels>
+              </VCardText>
             </VCard>
           </div>
 
@@ -2254,7 +2283,7 @@ function processInfrastructureItems(items) {
                       </tbody>
                   </VTable>
                   
-                  <!-- Feedback da Estação (para o candidato) -->
+                  <!-- Feedback da Estação (para o candidato - só após término) -->
                   <!-- Debug: checklistData?.feedbackEstacao: {{ !!checklistData?.feedbackEstacao }}, simulationEnded: {{ simulationEnded }} -->
                   <VCardText v-if="checklistData?.feedbackEstacao && simulationEnded">
                     <VExpansionPanels variant="accordion" class="mt-2">
