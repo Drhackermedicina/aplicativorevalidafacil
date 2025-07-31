@@ -298,6 +298,17 @@ async function fetchSimulationData(currentStationId) {
 
     if (stationData.value?.padraoEsperadoProcedimento) {
       checklistData.value = stationData.value.padraoEsperadoProcedimento;
+      
+      // Adiciona feedbackEstacao da estação ao checklistData se não existir
+      if (stationData.value.feedbackEstacao && !checklistData.value.feedbackEstacao) {
+        checklistData.value.feedbackEstacao = stationData.value.feedbackEstacao;
+        console.log("FEEDBACK: feedbackEstacao carregado da estação:", stationData.value.feedbackEstacao);
+      } else if (checklistData.value.feedbackEstacao) {
+        console.log("FEEDBACK: feedbackEstacao já presente no PEP:", checklistData.value.feedbackEstacao);
+      } else {
+        console.log("FEEDBACK: Nenhum feedbackEstacao encontrado na estação ou PEP");
+      }
+      
       if (!checklistData.value.itensAvaliacao || !Array.isArray(checklistData.value.itensAvaliacao) || checklistData.value.itensAvaliacao.length === 0) {
         console.warn("FETCH: PEP não contém 'itensAvaliacao' válidos.");
       }
@@ -2242,7 +2253,8 @@ function processInfrastructureItems(items) {
                   </VTable>
                   
                   <!-- Feedback da Estação (para o candidato) -->
-                  <VCardText v-if="checklistData?.feedbackEstacao && isChecklistVisibleForCandidate">
+                  <!-- Debug: checklistData?.feedbackEstacao: {{ !!checklistData?.feedbackEstacao }}, simulationEnded: {{ simulationEnded }} -->
+                  <VCardText v-if="checklistData?.feedbackEstacao && simulationEnded">
                     <VExpansionPanels variant="accordion" class="mt-2">
                       <VExpansionPanel>
                         <VExpansionPanelTitle>
@@ -2258,7 +2270,12 @@ function processInfrastructureItems(items) {
                           </div>
                           <div v-if="checklistData.feedbackEstacao.fontes">
                             <h5 class="text-subtitle-1 font-weight-bold mb-2">Fontes:</h5>
-                            <p class="text-caption" v-html="checklistData.feedbackEstacao.fontes"></p>
+                            <ul v-if="Array.isArray(checklistData.feedbackEstacao.fontes)" class="text-caption">
+                              <li v-for="(fonte, index) in checklistData.feedbackEstacao.fontes" :key="index" class="mb-1">
+                                {{ fonte }}
+                              </li>
+                            </ul>
+                            <p v-else class="text-caption" v-html="checklistData.feedbackEstacao.fontes"></p>
                           </div>
                         </VExpansionPanelText>
                       </VExpansionPanel>

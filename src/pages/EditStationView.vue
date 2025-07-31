@@ -363,7 +363,76 @@ function construirObjetoEstacao() {
       delete estacaoAtualizada.materiaisDisponiveis.perguntasAtorSimulado;
   }
 
+  // Adiciona feedback técnico da estação baseado na especialidade
+  estacaoAtualizada.feedbackEstacao = gerarFeedbackEstacao(estacaoAtualizada);
+
   return estacaoAtualizada;
+}
+
+// Função para gerar feedback técnico da estação baseado na especialidade
+function gerarFeedbackEstacao(estacao) {
+  const especialidade = estacao.especialidade?.toLowerCase() || '';
+  const titulo = estacao.tituloEstacao || '';
+  
+  // Mapear especialidades para templates de feedback
+  const feedbackTemplates = {
+    'gastroenterologia': {
+      resumoTecnico: "Esta estação aborda conceitos fundamentais de gastroenterologia, incluindo fisiopatologia, diagnóstico e manejo terapêutico. A avaliação foca na capacidade do candidato de realizar anamnese direcionada, exame físico específico do aparelho digestório, interpretação de exames complementares e formulação de hipóteses diagnósticas adequadas. O conhecimento sobre indicações terapêuticas, medicamentosas e não medicamentosas, é essencial para o manejo adequado dos pacientes.",
+      fontes: [
+        "Federação Brasileira de Gastroenterologia (FBG). Diretrizes Clínicas. 2024.",
+        "UpToDate. Gastroenterology Clinical Topics. Acessado em 2024.",
+        "Sociedade Brasileira de Endoscopia Digestiva (SOBED). Consensos e Diretrizes. 2023."
+      ]
+    },
+    'cardiologia': {
+      resumoTecnico: "Esta estação abrange aspectos fundamentais da cardiologia clínica, incluindo fisiopatologia cardiovascular, semiologia específica, interpretação de exames complementares (ECG, ecocardiografia, biomarcadores) e manejo terapêutico. O candidato deve demonstrar competência na avaliação de fatores de risco cardiovascular, reconhecimento de sinais e sintomas de cardiopatias, formulação de hipóteses diagnósticas e instituição de tratamento adequado.",
+      fontes: [
+        "Sociedade Brasileira de Cardiologia (SBC). Diretrizes Brasileiras de Cardiologia. 2024.",
+        "American Heart Association (AHA). Guidelines and Statements. 2023.",
+        "European Society of Cardiology (ESC). Clinical Practice Guidelines. 2024."
+      ]
+    },
+    'pneumologia': {
+      resumoTecnico: "Esta estação enfoca conhecimentos essenciais de pneumologia, abordando fisiopatologia respiratória, semiologia pulmonar, interpretação de exames de imagem e função pulmonar, e manejo clínico de doenças respiratórias. O candidato deve demonstrar habilidade na anamnese respiratória direcionada, exame físico do tórax, análise de radiografias e tomografias, além de conhecimento sobre terapêuticas específicas.",
+      fontes: [
+        "Sociedade Brasileira de Pneumologia e Tisiologia (SBPT). Diretrizes Brasileiras. 2024.",
+        "American Thoracic Society (ATS). Clinical Practice Guidelines. 2023.",
+        "Global Initiative for Chronic Obstructive Lung Disease (GOLD). 2024."
+      ]
+    },
+    'endocrinologia': {
+      resumoTecnico: "Esta estação contempla aspectos fundamentais da endocrinologia, incluindo fisiopatologia hormonal, diagnóstico diferencial de distúrbios endócrinos, interpretação de exames laboratoriais específicos e manejo terapêutico. O candidato deve demonstrar conhecimento sobre metabolismo, diabetes mellitus, distúrbios tireoidianos, alterações do eixo hipotálamo-hipófise e outras endocrinopatias relevantes.",
+      fontes: [
+        "Sociedade Brasileira de Endocrinologia e Metabologia (SBEM). Diretrizes. 2024.",
+        "American Diabetes Association (ADA). Standards of Medical Care. 2024.",
+        "Endocrine Society. Clinical Practice Guidelines. 2023."
+      ]
+    },
+    'default': {
+      resumoTecnico: `Esta estação clínica aborda conhecimentos fundamentais da área médica, com foco em ${especialidade || 'medicina geral'}. A avaliação contempla a capacidade do candidato de realizar anamnese estruturada, exame físico direcionado, interpretação de exames complementares e formulação de hipóteses diagnósticas. O manejo terapêutico apropriado e a comunicação efetiva com o paciente são aspectos centrais da competência médica avaliada.`,
+      fontes: [
+        "Ministério da Saúde. Protocolos Clínicos e Diretrizes Terapêuticas. 2024.",
+        "Conselho Federal de Medicina (CFM). Diretrizes e Pareceres. 2023.",
+        "UpToDate. Clinical Decision Support Resource. Acessado em 2024."
+      ]
+    }
+  };
+  
+  // Seleciona o template baseado na especialidade
+  let selectedTemplate = feedbackTemplates['default'];
+  
+  // Verifica se existe um template específico para a especialidade
+  for (const [key, template] of Object.entries(feedbackTemplates)) {
+    if (key !== 'default' && especialidade.includes(key)) {
+      selectedTemplate = template;
+      break;
+    }
+  }
+  
+  return {
+    resumoTecnico: selectedTemplate.resumoTecnico,
+    fontes: selectedTemplate.fontes
+  };
 }
 
 // Função para validar estrutura da estação
