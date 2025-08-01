@@ -3,7 +3,7 @@ import { currentUser } from '@/plugins/auth.js'
 import { db, firebaseAuth } from '@/plugins/firebase.js'
 import { backendUrl } from '@/utils/backendUrl'
 import { signOut } from 'firebase/auth'
-import { collection, getDocs } from 'firebase/firestore'
+import { collection, doc, getDoc, getDocs } from 'firebase/firestore'
 import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useTheme } from 'vuetify'
@@ -24,6 +24,7 @@ const sidebarOpen = ref(true);
 const unreadMessages = ref(0);
 const onlineUsers = ref([]);
 const userStats = reactive({ simulationsCompleted: 0, averageScore: 0, currentStreak: 0 });
+const userScores = ref({}); // Armazena pontuações do usuário por estação
 
 // --- Refs para filtros e pesquisa ---
 const searchQuery = ref('');
@@ -68,7 +69,10 @@ const stations2024_2 = computed(() => {
     return idEstacao.startsWith("REVALIDA") && idEstacao.includes("2024");
   });
   console.log(`[DEBUG INEP 2024.2] Total de estações filtradas por idEstacao: ${filtered.length}`);
-  return filtered;
+  
+  // Ordenar alfabeticamente por título limpo
+  return filtered
+    .sort((a, b) => getCleanStationTitle(a.tituloEstacao).localeCompare(getCleanStationTitle(b.tituloEstacao), 'pt-BR', { numeric: true }));
 });
 
 const stationsRevalidaFacil = computed(() => {
@@ -99,19 +103,27 @@ const stationsRevalidaFacil = computed(() => {
     console.log('[DEBUG RevalidaFacil] Contagem por área:', areaCount);
   }
   
-  return filteredStations;
+  // Ordenar alfabeticamente por título limpo
+  return filteredStations
+    .sort((a, b) => getCleanStationTitle(a.tituloEstacao).localeCompare(getCleanStationTitle(b.tituloEstacao), 'pt-BR', { numeric: true }));
 });
 
 const filteredStationsRevalidaFacilClinicaMedica = computed(() => {
-  return stationsRevalidaFacil.value.filter(station => getStationArea(station).key === 'clinica-medica');
+  return stationsRevalidaFacil.value
+    .filter(station => getStationArea(station).key === 'clinica-medica')
+    .sort((a, b) => getCleanStationTitle(a.tituloEstacao).localeCompare(getCleanStationTitle(b.tituloEstacao), 'pt-BR', { numeric: true }));
 });
 
 const filteredStationsRevalidaFacilCirurgia = computed(() => {
-  return stationsRevalidaFacil.value.filter(station => getStationArea(station).key === 'cirurgia');
+  return stationsRevalidaFacil.value
+    .filter(station => getStationArea(station).key === 'cirurgia')
+    .sort((a, b) => getCleanStationTitle(a.tituloEstacao).localeCompare(getCleanStationTitle(b.tituloEstacao), 'pt-BR', { numeric: true }));
 });
 
 const filteredStationsRevalidaFacilPreventiva = computed(() => {
-  return stationsRevalidaFacil.value.filter(station => getStationArea(station).key === 'preventiva');
+  return stationsRevalidaFacil.value
+    .filter(station => getStationArea(station).key === 'preventiva')
+    .sort((a, b) => getCleanStationTitle(a.tituloEstacao).localeCompare(getCleanStationTitle(b.tituloEstacao), 'pt-BR', { numeric: true }));
 });
 
 const filteredStationsRevalidaFacilPediatria = computed(() => {
@@ -149,17 +161,23 @@ const filteredStationsRevalidaFacilPediatria = computed(() => {
     });
   }
   
-  return pediatriaStations;
+  return pediatriaStations
+    .sort((a, b) => getCleanStationTitle(a.tituloEstacao).localeCompare(getCleanStationTitle(b.tituloEstacao), 'pt-BR', { numeric: true }));
 });
 
 const filteredStationsRevalidaFacilGO = computed(() => {
-  return stationsRevalidaFacil.value.filter(station => getStationArea(station).key === 'ginecologia');
+  return stationsRevalidaFacil.value
+    .filter(station => getStationArea(station).key === 'ginecologia')
+    .sort((a, b) => getCleanStationTitle(a.tituloEstacao).localeCompare(getCleanStationTitle(b.tituloEstacao), 'pt-BR', { numeric: true }));
 });
 
 // --- Função para limpar títulos das estações ---
 function getCleanStationTitle(originalTitle) {
   if (!originalTitle) return 'ESTAÇÃO SEM TÍTULO';
   let cleanTitle = originalTitle;
+
+  // Log para debug
+  console.log(`[DEBUG CleanTitle] Original: "${originalTitle}"`);
 
   // Remover completamente prefixos INEP ou REVALIDA
   cleanTitle = cleanTitle.replace(/^INEP\s*2024\.2[\s\:\-]*/gi, '');
@@ -170,21 +188,27 @@ function getCleanStationTitle(originalTitle) {
   cleanTitle = cleanTitle.replace(/^REVALIDA\s*F[AÁ]CIL\s*[\-\:\s]+/i, '');
   cleanTitle = cleanTitle.replace(/^REVALIDAFACIL\s*[\-\:\s]+/i, '');
   
-  // Remove outros prefixos comuns e especialidades do início
-  cleanTitle = cleanTitle.replace(/^(ESTAÇÃO|CLINICA\s*MEDICA|CLÍNICA\s*MÉDICA|CIRURGIA|PEDIATRIA|PREVENTIVA|GINECOLOGIA|OBSTETRICIA|G\.O|GO|\d{4}\.\d|\d{4}|\d+|\-|\||\:)+/gi, '');
+  // Remove outros prefixos comuns e especialidades do início (mais específico)
+  cleanTitle = cleanTitle.replace(/^(ESTAÇÃO\s+|CLINICA\s*MEDICA\s+|CLÍNICA\s*MÉDICA\s+|CIRURGIA\s+|PEDIATRIA\s+|PREVENTIVA\s+|GINECOLOGIA\s+|OBSTETRICIA\s+|G\.O\s+|GO\s+|\d{4}\.\d\s+|\d{4}\s+|\d+\s*[\-\|\:]\s*)/gi, '');
 
-  // Remove abreviações de especialidades em qualquer parte do texto
+  // Remove abreviações de especialidades apenas quando estão isoladas ou entre delimitadores
   cleanTitle = cleanTitle.replace(/\s*[\(\[\-]\s*(CM|CR|PED|G\.O|GO|PREV|GERAL)\s*[\)\]\-]\s*/gi, ' ');
   cleanTitle = cleanTitle.replace(/\s+\-\s+(CM|CR|PED|G\.O|GO|PREV|GERAL)\s*/gi, ' ');
-  cleanTitle = cleanTitle.replace(/\s+(CM|CR|PED|G\.O|GO|PREV|GERAL)\s*[\-\:]?\s*/gi, ' ');
+  // Remove abreviações apenas quando isoladas com delimitadores (não dentro de palavras)
+  cleanTitle = cleanTitle.replace(/\s+(CM|CR|PED|G\.O|GO|PREV|GERAL)(?=\s|$|[\-\:\.])/gi, ' ');
+  cleanTitle = cleanTitle.replace(/^(CM|CR|PED|G\.O|GO|PREV|GERAL)(?=\s|$|[\-\:\.])/gi, '');
+  
   // Remover qualquer sequência de traços, pontos ou símbolos antes da primeira palavra
   cleanTitle = cleanTitle.replace(/^[\s\-\:\|\.\_]*/, '');
   
-  // Remove tudo até encontrar a primeira palavra relevante (diagnóstico)
+  // Remove tudo até encontrar a primeira palavra relevante (diagnóstico) - mais cuidadoso
   cleanTitle = cleanTitle.replace(/^[^a-zA-ZÀ-ÿ]*([a-zA-ZÀ-ÿ].*)$/, '$1');
 
   // Remove espaços extras
   cleanTitle = cleanTitle.trim();
+  
+  // Log do resultado intermediário
+  console.log(`[DEBUG CleanTitle] Após limpeza: "${cleanTitle}"`);
   
   // Se ficou vazio, retorna fallback mas sem os prefixos
   if (!cleanTitle || cleanTitle.length < 2) {
@@ -196,10 +220,11 @@ function getCleanStationTitle(originalTitle) {
       .replace(/Pediatria/gi, '')
       .replace(/Ginecologia e Obstetrícia|Ginecologia E Obstetricia/gi, '')
       .replace(/Medicina da Família|Medicina De Familia/gi, '')
-      .replace(/(CM|CR|PED|G\.O|GO|PREV|GERAL)[\s\:\-]+/gi, '')
+      .replace(/(CM|CR|PED|G\.O|GO|PREV|GERAL)(?=\s|$|[\s\:\-]+)/gi, '') // Corrigido para não remover de dentro de palavras
       .replace(/[\s\-\:]{2,}/g, ' ')  // Substitui múltiplos espaços ou símbolos por um único espaço
       .trim();
     
+    console.log(`[DEBUG CleanTitle] Fallback usado: "${fallback}"`);
     return fallback || originalTitle;
   }
 
@@ -208,6 +233,7 @@ function getCleanStationTitle(originalTitle) {
     word.charAt(0).toUpperCase() + word.slice(1)
   ).join(' ');
 
+  console.log(`[DEBUG CleanTitle] Final: "${cleanTitle}"`);
   return cleanTitle;
 }
 
@@ -543,10 +569,12 @@ function hideSuggestions() {
 }
 
 const filteredStations2024_2 = computed(() => {
-  return filteredStations.value.filter(station => {
-    const titulo = station.tituloEstacao?.toUpperCase() || '';
-    return titulo.includes("INEP") && titulo.includes("2024.2");
-  });
+  return filteredStations.value
+    .filter(station => {
+      const titulo = station.tituloEstacao?.toUpperCase() || '';
+      return titulo.includes("INEP") && titulo.includes("2024.2");
+    })
+    .sort((a, b) => getCleanStationTitle(a.tituloEstacao).localeCompare(getCleanStationTitle(b.tituloEstacao), 'pt-BR', { numeric: true }));
 });
 
 // --- Função para Buscar Estações ---
@@ -573,6 +601,11 @@ async function fetchStations() {
     
     stations.value = stationsList;
     console.log(`[DEBUG] Estações carregadas: ${stations.value.length}`);
+    
+    // Buscar pontuações do usuário após carregar estações
+    if (currentUser.value) {
+      await fetchUserScores();
+    }
     
     // Debug específico para verificar estações pediátricas
     console.log('[DEBUG] Verificando todas as estações para palavras-chave pediátricas:');
@@ -605,6 +638,68 @@ async function fetchStations() {
   } finally {
     isLoadingStations.value = false;
   }
+}
+
+// --- Função para buscar pontuações do usuário ---
+async function fetchUserScores() {
+  if (!currentUser.value) return;
+  
+  try {
+    console.log(`[DEBUG] Buscando pontuações do usuário: ${currentUser.value.uid}`);
+    
+    // Buscar dados do usuário na coleção usuarios onde estão salvos os historicos
+    const userDocRef = doc(db, 'usuarios', currentUser.value.uid);
+    const userDocSnap = await getDoc(userDocRef);
+    
+    const scores = {};
+    
+    if (userDocSnap.exists()) {
+      const userData = userDocSnap.data();
+      const estacoesConcluidas = userData.estacoesConcluidas || [];
+      
+      console.log(`[DEBUG] Estações concluídas encontradas:`, estacoesConcluidas);
+      
+      // Processar cada estação concluída
+      estacoesConcluidas.forEach((estacao) => {
+        if (estacao.idEstacao && estacao.nota !== undefined) {
+          // Se já existe uma pontuação para esta estação, manter a maior
+          if (!scores[estacao.idEstacao] || estacao.nota > scores[estacao.idEstacao].score) {
+            scores[estacao.idEstacao] = {
+              score: estacao.nota,
+              maxScore: 100, // Assumindo que a nota máxima é 100
+              date: estacao.data?.toDate ? estacao.data.toDate() : estacao.data,
+              nomeEstacao: estacao.nomeEstacao,
+              especialidade: estacao.especialidade,
+              origem: estacao.origem
+            };
+          }
+        }
+      });
+    } else {
+      console.log(`[DEBUG] Documento do usuário não encontrado: ${currentUser.value.uid}`);
+    }
+    
+    userScores.value = scores;
+    console.log(`[DEBUG] Pontuações do usuário carregadas:`, userScores.value);
+    
+  } catch (error) {
+    console.error("[DEBUG] ERRO ao buscar pontuações do usuário:", error);
+  }
+}
+
+// --- Função para obter pontuação do usuário para uma estação específica ---
+function getUserStationScore(stationId) {
+  const userScore = userScores.value[stationId];
+  if (!userScore) return null;
+  
+  const percentage = (userScore.score / userScore.maxScore) * 100;
+  return {
+    score: userScore.score,
+    maxScore: userScore.maxScore,
+    percentage: percentage.toFixed(1),
+    date: userScore.date,
+    sessionId: userScore.sessionId
+  };
 }
 
 async function startSimulationAsActor(stationId) {
@@ -709,14 +804,22 @@ watch(searchQuery, () => {
   updateSuggestions();
 });
 
+// Watch para carregar pontuações quando o usuário mudar
+watch(currentUser, (newUser) => {
+  if (newUser && stations.value.length > 0) {
+    fetchUserScores();
+  }
+}, { immediate: true });
+
 // Colapso automático do sidebar
 function toggleCollapse() {
   const wrapper = document.querySelector('.layout-wrapper')
   wrapper?.classList.toggle('layout-vertical-nav-collapsed')
 }
 onMounted(() => {
-  const wrapper = document.querySelector('.layout-wrapper')
-  wrapper?.classList.add('layout-vertical-nav-collapsed')
+  // Sidebar permanece aberto por padrão - não adicionar classe collapsed
+  // const wrapper = document.querySelector('.layout-wrapper')
+  // wrapper?.classList.add('layout-vertical-nav-collapsed')
 })
 onUnmounted(() => {
   const wrapper = document.querySelector('.layout-wrapper')
@@ -870,6 +973,19 @@ const exampleVariable = ref(null); // Exemplo de declaração válida
                         </template>
                         <v-list-item-title class="font-weight-bold text-body-1">{{ getCleanStationTitle(station.tituloEstacao) }}</v-list-item-title>
                         <v-list-item-subtitle class="text-caption text-secondary">{{ station.especialidade }}</v-list-item-subtitle>
+                        
+                        <!-- Pontuação do usuário -->
+                        <div v-if="getUserStationScore(station.id)" class="mt-2">
+                          <v-chip 
+                            :color="getUserStationScore(station.id).percentage >= 70 ? 'success' : getUserStationScore(station.id).percentage >= 50 ? 'warning' : 'error'"
+                            variant="flat"
+                            size="small"
+                            class="user-score-chip"
+                          >
+                            <v-icon start size="16">ri-star-fill</v-icon>
+                            {{ getUserStationScore(station.id).score }}/{{ getUserStationScore(station.id).maxScore }} ({{ getUserStationScore(station.id).percentage }}%)
+                          </v-chip>
+                        </div>
                         <template #append>
                           <div class="d-flex align-center">
                             <v-progress-circular
@@ -951,6 +1067,19 @@ const exampleVariable = ref(null); // Exemplo de declaração válida
                         </template>
                         <v-list-item-title class="font-weight-bold text-body-1">{{ getCleanStationTitle(station.tituloEstacao) }}</v-list-item-title>
                         <v-list-item-subtitle class="text-caption text-secondary">{{ station.especialidade }}</v-list-item-subtitle>
+                        
+                        <!-- Pontuação do usuário -->
+                        <div v-if="getUserStationScore(station.id)" class="mt-2">
+                          <v-chip 
+                            :color="getUserStationScore(station.id).percentage >= 70 ? 'success' : getUserStationScore(station.id).percentage >= 50 ? 'warning' : 'error'"
+                            variant="flat"
+                            size="small"
+                            class="user-score-chip"
+                          >
+                            <v-icon start size="16">ri-star-fill</v-icon>
+                            {{ getUserStationScore(station.id).score }}/{{ getUserStationScore(station.id).maxScore }} ({{ getUserStationScore(station.id).percentage }}%)
+                          </v-chip>
+                        </div>
                         <template #append>
                           <div class="d-flex align-center">
                             <v-progress-circular
@@ -1008,6 +1137,19 @@ const exampleVariable = ref(null); // Exemplo de declaração válida
                         </template>
                         <v-list-item-title class="font-weight-bold text-body-1">{{ getCleanStationTitle(station.tituloEstacao) }}</v-list-item-title>
                         <v-list-item-subtitle class="text-caption text-secondary">{{ station.especialidade }}</v-list-item-subtitle>
+                        
+                        <!-- Pontuação do usuário -->
+                        <div v-if="getUserStationScore(station.id)" class="mt-2">
+                          <v-chip 
+                            :color="getUserStationScore(station.id).percentage >= 70 ? 'success' : getUserStationScore(station.id).percentage >= 50 ? 'warning' : 'error'"
+                            variant="flat"
+                            size="small"
+                            class="user-score-chip"
+                          >
+                            <v-icon start size="16">ri-star-fill</v-icon>
+                            {{ getUserStationScore(station.id).score }}/{{ getUserStationScore(station.id).maxScore }} ({{ getUserStationScore(station.id).percentage }}%)
+                          </v-chip>
+                        </div>
                         <template #append>
                           <div class="d-flex align-center">
                             <v-progress-circular
@@ -1065,6 +1207,19 @@ const exampleVariable = ref(null); // Exemplo de declaração válida
                         </template>
                         <v-list-item-title class="font-weight-bold text-body-1">{{ getCleanStationTitle(station.tituloEstacao) }}</v-list-item-title>
                         <v-list-item-subtitle class="text-caption text-secondary">{{ station.especialidade }}</v-list-item-subtitle>
+                        
+                        <!-- Pontuação do usuário -->
+                        <div v-if="getUserStationScore(station.id)" class="mt-2">
+                          <v-chip 
+                            :color="getUserStationScore(station.id).percentage >= 70 ? 'success' : getUserStationScore(station.id).percentage >= 50 ? 'warning' : 'error'"
+                            variant="flat"
+                            size="small"
+                            class="user-score-chip"
+                          >
+                            <v-icon start size="16">ri-star-fill</v-icon>
+                            {{ getUserStationScore(station.id).score }}/{{ getUserStationScore(station.id).maxScore }} ({{ getUserStationScore(station.id).percentage }}%)
+                          </v-chip>
+                        </div>
                         <template #append>
                           <div class="d-flex align-center">
                             <v-progress-circular
@@ -1122,6 +1277,19 @@ const exampleVariable = ref(null); // Exemplo de declaração válida
                         </template>
                         <v-list-item-title class="font-weight-bold text-body-1">{{ getCleanStationTitle(station.tituloEstacao) }}</v-list-item-title>
                         <v-list-item-subtitle class="text-caption text-secondary">{{ station.especialidade }}</v-list-item-subtitle>
+                        
+                        <!-- Pontuação do usuário -->
+                        <div v-if="getUserStationScore(station.id)" class="mt-2">
+                          <v-chip 
+                            :color="getUserStationScore(station.id).percentage >= 70 ? 'success' : getUserStationScore(station.id).percentage >= 50 ? 'warning' : 'error'"
+                            variant="flat"
+                            size="small"
+                            class="user-score-chip"
+                          >
+                            <v-icon start size="16">ri-star-fill</v-icon>
+                            {{ getUserStationScore(station.id).score }}/{{ getUserStationScore(station.id).maxScore }} ({{ getUserStationScore(station.id).percentage }}%)
+                          </v-chip>
+                        </div>
                         <template #append>
                           <div class="d-flex align-center">
                             <v-progress-circular
@@ -1179,6 +1347,19 @@ const exampleVariable = ref(null); // Exemplo de declaração válida
                         </template>
                         <v-list-item-title class="font-weight-bold text-body-1">{{ getCleanStationTitle(station.tituloEstacao) }}</v-list-item-title>
                         <v-list-item-subtitle class="text-caption text-secondary">{{ station.especialidade }}</v-list-item-subtitle>
+                        
+                        <!-- Pontuação do usuário -->
+                        <div v-if="getUserStationScore(station.id)" class="mt-2">
+                          <v-chip 
+                            :color="getUserStationScore(station.id).percentage >= 70 ? 'success' : getUserStationScore(station.id).percentage >= 50 ? 'warning' : 'error'"
+                            variant="flat"
+                            size="small"
+                            class="user-score-chip"
+                          >
+                            <v-icon start size="16">ri-star-fill</v-icon>
+                            {{ getUserStationScore(station.id).score }}/{{ getUserStationScore(station.id).maxScore }} ({{ getUserStationScore(station.id).percentage }}%)
+                          </v-chip>
+                        </div>
                         <template #append>
                           <div class="d-flex align-center">
                             <v-progress-circular
@@ -1352,5 +1533,18 @@ const exampleVariable = ref(null); // Exemplo de declaração válida
 .admin-button:hover {
   transform: translateY(-1px);
   box-shadow: 0 4px 12px rgba(var(--v-theme-error), 0.3);
+}
+
+/* User score chip */
+.user-score-chip {
+  font-size: 0.75rem !important;
+  font-weight: 600 !important;
+  border-radius: 12px !important;
+  margin-top: 4px;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+.user-score-chip .v-icon {
+  margin-right: 4px;
 }
 </style>

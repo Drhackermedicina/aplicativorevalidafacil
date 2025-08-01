@@ -1,9 +1,14 @@
 <script setup>
 import { currentUser } from '@/plugins/auth.js';
-import { db } from '@/plugins/firebase.js';
+import { db, storage } from '@/plugins/firebase.js';
 import { deleteDoc, doc, getDoc, serverTimestamp, updateDoc } from 'firebase/firestore';
-import { computed, onMounted, ref, watch } from 'vue';
+import { getDownloadURL, ref as storageRef, uploadBytes } from 'firebase/storage';
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
+
+// Debug do storage
+console.log('Storage importado:', storage);
+console.log('Funções do storage importadas:', { storageRef, uploadBytes, getDownloadURL });
 
 const route = useRoute();
 const router = useRouter();
@@ -13,6 +18,11 @@ const isLoading = ref(true);
 const errorMessage = ref('');
 const successMessage = ref('');
 const isSaving = ref(false);
+const keyboardShortcutUsed = ref(false);
+
+// Variáveis para controle de upload de imagens
+const uploadingImages = ref({});
+const uploadProgress = ref({});
 
 // Função para obter o estado inicial do formulário
 function getInitialFormData() {
@@ -32,7 +42,11 @@ function getInitialFormData() {
     avisosImportantes: '',
     roteiroCandidato: '',
     orientacoesCandidato: '',
-    informacoesVerbaisSimulado: [{ contextoOuPerguntaChave: '', informacao: '' }],
+    informacoesVerbaisSimulado: [{ 
+      idInfoVerbal: `infoVerbal_${Date.now()}_1`,
+      contextoOuPerguntaChave: '', 
+      informacao: '' 
+    }],
     impressos: [{ idImpresso: `imp_${Date.now()}_1`, tituloImpresso: '', tipoConteudo: 'texto_simples', conteudo: { texto: ''} }],
     padraoEsperadoProcedimento: {
       idChecklistAssociado: '',
@@ -50,7 +64,7 @@ function getInitialFormData() {
       pontuacaoTotalEstacao: 0,
       feedbackEstacao: {
         resumoTecnico: '',
-        fontes: []
+        fontes: [''] // Inicializa com pelo menos um campo vazio
       }
     }
   };
@@ -174,12 +188,18 @@ function loadStationIntoForm(stationData) {
   // Informações verbais simulado
   const informacoesVerbaisExistentes = md.informacoesVerbaisSimulado || [];
   if (Array.isArray(informacoesVerbaisExistentes) && informacoesVerbaisExistentes.length > 0) {
-    form.informacoesVerbaisSimulado = informacoesVerbaisExistentes.map(info => ({
+//  formData.value.padraoEsperadoProcedimento.itensAvaliacao = itensExistentes.map(item => ({
+    form.informacoesVerbaisSimulado = informacoesVerbaisExistentes.map((info, index) => ({
+      idInfoVerbal: info.idInfoVerbal || `infoVerbal_${Date.now()}_${index + 1}`,
       contextoOuPerguntaChave: info.contextoOuPerguntaChave || '',
       informacao: info.informacao || ''
     }));
   } else {
-    form.informacoesVerbaisSimulado = [{ contextoOuPerguntaChave: '', informacao: '' }];
+    form.informacoesVerbaisSimulado = [{ 
+      idInfoVerbal: `infoVerbal_${Date.now()}_1`,
+      contextoOuPerguntaChave: '', 
+      informacao: '' 
+    }];
   }
   
   // Impressos
@@ -282,7 +302,9 @@ function loadStationIntoForm(stationData) {
   const feedbackExistente = jsonPep.feedbackEstacao || {};
   form.padraoEsperadoProcedimento.feedbackEstacao = {
     resumoTecnico: feedbackExistente.resumoTecnico || '',
-    fontes: Array.isArray(feedbackExistente.fontes) ? feedbackExistente.fontes : []
+    fontes: Array.isArray(feedbackExistente.fontes) && feedbackExistente.fontes.length > 0 
+      ? feedbackExistente.fontes 
+      : [''] // Sempre inicializa com pelo menos um campo vazio para fontes
   };
   
   // Atualiza números oficiais dos itens após carregar
@@ -419,6 +441,143 @@ function validarEstruturaEstacao(estacao) {
          estacao.tituloEstacao.trim() !== '';
 }
 
+// Função para fazer upload de imagem para o Firebase Storage
+async function uploadImageToStorage(file, impressoIndex) {
+  try {
+    // Verifica se o usuário está autenticado
+    if (!currentUser.value) {
+      throw new Error('Usuário não autenticado');
+    }
+    
+    console.log('=== INÍCIO DO UPLOAD ===');
+    console.log('Usuário autenticado:', currentUser.value.uid);
+    console.log('Storage objeto:', storage);
+    console.log('Arquivo selecionado:', {
+      name: file.name,
+      size: file.size,
+      type: file.type
+    });
+    
+    // Gera um nome único para o arquivo (sanitiza o nome)
+    const timestamp = Date.now();
+    const cleanFileName = file.name.replace(/[^a-zA-Z0-9.-]/g, '_');
+    const fileName = `impressos/est_${formData.value.numeroDaEstacao || 'temp'}_impresso_${impressoIndex}_${timestamp}_${cleanFileName}`;
+    
+    console.log('Nome do arquivo no storage:', fileName);
+    
+    // Cria a referência no Storage
+    const imageRef = storageRef(storage, fileName);
+    console.log('Referência criada:', imageRef);
+    
+    // Inicia o upload
+    uploadingImages.value[`impresso-${impressoIndex}`] = true;
+    uploadProgress.value[`impresso-${impressoIndex}`] = 0;
+    
+    console.log('=== INICIANDO UPLOAD ===');
+    
+    // Faz o upload do arquivo
+    console.log('Fazendo upload...');
+    
+    // Usa await diretamente sem timeout primeiro para debug
+    const snapshot = await uploadBytes(imageRef, file);
+    console.log('=== UPLOAD CONCLUÍDO ===');
+    console.log('Snapshot:', snapshot);
+    
+    // Obtém a URL de download
+    console.log('=== OBTENDO URL DE DOWNLOAD ===');
+    const downloadURL = await getDownloadURL(snapshot.ref);
+    console.log('=== URL OBTIDA ===');
+    console.log('URL de download:', downloadURL);
+    
+    // Atualiza o campo automaticamente
+    console.log('=== ATUALIZANDO CAMPO ===');
+    if (formData.value.impressos[impressoIndex] && formData.value.impressos[impressoIndex].conteudo) {
+      formData.value.impressos[impressoIndex].conteudo.caminhoImagem = downloadURL;
+      console.log('Campo atualizado com a URL');
+    } else {
+      console.error('Estrutura do impresso não encontrada:', formData.value.impressos[impressoIndex]);
+    }
+    
+    uploadingImages.value[`impresso-${impressoIndex}`] = false;
+    successMessage.value = 'Imagem carregada com sucesso!';
+    setTimeout(() => { successMessage.value = ''; }, 3000);
+    
+    console.log('=== UPLOAD FINALIZADO COM SUCESSO ===');
+    return downloadURL;
+    
+  } catch (error) {
+    console.error('=== ERRO NO UPLOAD ===');
+    console.error('Erro detalhado no upload da imagem:', error);
+    console.error('Código do erro:', error.code);
+    console.error('Mensagem do erro:', error.message);
+    console.error('Stack do erro:', error.stack);
+    
+    uploadingImages.value[`impresso-${impressoIndex}`] = false;
+    
+    // Mensagens de erro mais específicas
+    let errorMsg = 'Erro no upload da imagem';
+    if (error.code === 'storage/unauthorized') {
+      errorMsg = 'Sem permissão para fazer upload. Verifique se você está logado como administrador.';
+    } else if (error.code === 'storage/quota-exceeded') {
+      errorMsg = 'Cota de storage excedida.';
+    } else if (error.code === 'storage/invalid-format') {
+      errorMsg = 'Formato de arquivo inválido.';
+    } else if (error.code === 'storage/object-not-found') {
+      errorMsg = 'Arquivo não encontrado.';
+    } else if (error.message) {
+      errorMsg += ': ' + error.message;
+    }
+    
+    errorMessage.value = errorMsg;
+    setTimeout(() => { errorMessage.value = ''; }, 8000);
+    throw error;
+  }
+}
+
+// Função para lidar com a seleção de arquivo
+function handleImageUpload(event, impressoIndex) {
+  const file = event.target.files[0];
+  if (!file) return;
+  
+  console.log('handleImageUpload chamado com:', {
+    file: file.name,
+    impressoIndex,
+    currentUser: currentUser.value?.uid
+  });
+  
+  // Verificações básicas
+  if (!currentUser.value) {
+    errorMessage.value = 'Você precisa estar logado para fazer upload de imagens.';
+    setTimeout(() => { errorMessage.value = ''; }, 5000);
+    return;
+  }
+  
+  if (!storage) {
+    errorMessage.value = 'Storage do Firebase não configurado.';
+    setTimeout(() => { errorMessage.value = ''; }, 5000);
+    return;
+  }
+  
+  // Validações do arquivo
+  const maxSize = 10 * 1024 * 1024; // 10MB
+  const allowedTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/gif', 'image/webp'];
+  
+  if (file.size > maxSize) {
+    errorMessage.value = 'Arquivo muito grande. Máximo 10MB.';
+    setTimeout(() => { errorMessage.value = ''; }, 5000);
+    return;
+  }
+  
+  if (!allowedTypes.includes(file.type)) {
+    errorMessage.value = 'Tipo de arquivo não suportado. Use JPG, PNG, GIF ou WebP.';
+    setTimeout(() => { errorMessage.value = ''; }, 5000);
+    return;
+  }
+  
+  // Faz o upload
+  uploadImageToStorage(file, impressoIndex);
+}
+
 // Função para salvar alterações
 async function saveStationChanges() {
   if (!stationId.value) {
@@ -524,12 +683,75 @@ async function deleteStation() {
 
 // Funções auxiliares para manipular arrays dinâmicos
 function adicionarInfoVerbal() {
-  formData.value.informacoesVerbaisSimulado.push({ contextoOuPerguntaChave: '', informacao: '' });
+  const proximaPos = formData.value.informacoesVerbaisSimulado.length + 1;
+  const novaInfoVerbal = {
+    idInfoVerbal: `infoVerbal_${Date.now()}_${proximaPos}`,
+    contextoOuPerguntaChave: '',
+    informacao: ''
+  };
+  
+  // Se há mais de uma info verbal, perguntar onde inserir
+  if (formData.value.informacoesVerbaisSimulado.length > 0) {
+    newInfoVerbalPosition.value = novaInfoVerbal;
+    showPositionDialogInfoVerbal.value = true;
+  } else {
+    formData.value.informacoesVerbaisSimulado.push(novaInfoVerbal);
+  }
+}
+
+function adicionarInfoVerbalNaPosicao(posicao) {
+  if (newInfoVerbalPosition.value) {
+    if (posicao === 'fim') {
+      formData.value.informacoesVerbaisSimulado.push(newInfoVerbalPosition.value);
+    } else {
+      const index = parseInt(posicao) - 1; // Converte posição 1-based para index 0-based
+      formData.value.informacoesVerbaisSimulado.splice(index, 0, newInfoVerbalPosition.value);
+    }
+    
+    // Reset dialog
+    newInfoVerbalPosition.value = null;
+    showPositionDialogInfoVerbal.value = false;
+  }
+}
+
+function cancelarAdicaoInfoVerbal() {
+  newInfoVerbalPosition.value = null;
+  showPositionDialogInfoVerbal.value = false;
 }
 
 function removerInfoVerbal(index) {
   if (formData.value.informacoesVerbaisSimulado.length > 1) {
     formData.value.informacoesVerbaisSimulado.splice(index, 1);
+  }
+}
+
+// Funções de reordenação para informações verbais
+function moverInfoVerbalParaCima(index) {
+  if (index > 0) {
+    const infos = formData.value.informacoesVerbaisSimulado;
+    const info = infos[index];
+    infos.splice(index, 1);
+    infos.splice(index - 1, 0, info);
+  }
+}
+
+function moverInfoVerbalParaBaixo(index) {
+  const infos = formData.value.informacoesVerbaisSimulado;
+  if (index < infos.length - 1) {
+    const info = infos[index];
+    infos.splice(index, 1);
+    infos.splice(index + 1, 0, info);
+  }
+}
+
+function moverInfoVerbalParaPosicao(index, novaPosicao) {
+  const infos = formData.value.informacoesVerbaisSimulado;
+  const novoIndex = parseInt(novaPosicao) - 1; // Converte posição 1-based para index 0-based
+  
+  if (novoIndex >= 0 && novoIndex < infos.length && novoIndex !== index) {
+    const info = infos[index];
+    infos.splice(index, 1);
+    infos.splice(novoIndex, 0, info);
   }
 }
 
@@ -562,6 +784,10 @@ function removerFocoPrincipalPEP(index) {
 // Refs para controle de posição ao adicionar item
 const showPositionDialog = ref(false);
 const newItemPosition = ref(null);
+
+// Refs para controle de posição ao adicionar informação verbal
+const showPositionDialogInfoVerbal = ref(false);
+const newInfoVerbalPosition = ref(null);
 
 function adicionarItemAvaliacaoPEP() {
   const proximaPos = formData.value.padraoEsperadoProcedimento.itensAvaliacao.length + 1;
@@ -671,9 +897,53 @@ watch(
   }
 );
 
+// Funções para gerenciar as fontes do feedback
+function adicionarFonteFeedback() {
+  formData.value.padraoEsperadoProcedimento.feedbackEstacao.fontes.push('');
+}
+
+function removerFonteFeedback(index) {
+  const fontes = formData.value.padraoEsperadoProcedimento.feedbackEstacao.fontes;
+  if (fontes.length > 1) {
+    fontes.splice(index, 1);
+  } else {
+    // Se for a última fonte, limpa o conteúdo mas mantém pelo menos uma
+    fontes[0] = '';
+  }
+}
+
+// Função para lidar com atalhos de teclado
+function handleKeydown(event) {
+  // Ctrl+S ou Cmd+S para salvar
+  if ((event.ctrlKey || event.metaKey) && event.key === 's') {
+    event.preventDefault(); // Previne o comportamento padrão do navegador
+    if (!isSaving.value) {
+      keyboardShortcutUsed.value = true;
+      saveStationChanges();
+      
+      // Remove o feedback após 2 segundos
+      setTimeout(() => {
+        keyboardShortcutUsed.value = false;
+      }, 2000);
+    }
+  }
+}
+
 // Lifecycle
 onMounted(() => {
   // O watch com immediate: true já chama fetchStationData na montagem se route.params.id estiver presente
+  
+  // Debug do Storage no mount
+  console.log('onMounted - Storage disponível:', !!storage);
+  console.log('onMounted - Usuário atual:', currentUser.value?.uid);
+  
+  // Adiciona o listener de teclado
+  document.addEventListener('keydown', handleKeydown);
+});
+
+onUnmounted(() => {
+  // Remove o listener de teclado para evitar vazamentos de memória
+  document.removeEventListener('keydown', handleKeydown);
 });
 
 watch(() => route.params.id, (newId) => {
@@ -709,6 +979,7 @@ watch(() => route.params.id, (newId) => {
 
     <div v-if="errorMessage" class="status-message-internal erro">{{ errorMessage }}</div>
     <div v-if="successMessage" class="status-message-internal sucesso">{{ successMessage }}</div>
+    <div v-if="keyboardShortcutUsed" class="status-message-internal keyboard-shortcut">⌨️ Atalho do teclado usado!</div>
 
     <div v-if="!isLoading && !isAdmin" class="status-message-internal erro">
       Você não tem permissão para editar esta estação.
@@ -783,8 +1054,44 @@ watch(() => route.params.id, (newId) => {
           </div>
 
           <h4>Roteiro do Ator / Informações Verbais (para o Ator/Avaliador)</h4>
-          <div v-for="(info, index) in formData.informacoesVerbaisSimulado" :key="'infoVerbal-'+index" class="dynamic-item-group">
-            <h5>Informação Verbal {{ index + 1 }}</h5>
+          <div v-for="(info, index) in formData.informacoesVerbaisSimulado" :key="info.idInfoVerbal" class="dynamic-item-group info-verbal-item">
+            <div class="info-verbal-header">
+              <h5>Informação Verbal {{ index + 1 }}</h5>
+              <div class="info-verbal-controls">
+                <div class="position-controls">
+                  <label :for="'posicaoInfoVerbal' + index" class="position-label">Posição:</label>
+                  <select 
+                    :id="'posicaoInfoVerbal' + index" 
+                    :value="index + 1" 
+                    @change="moverInfoVerbalParaPosicao(index, $event.target.value)"
+                    class="position-select"
+                  >
+                    <option v-for="pos in formData.informacoesVerbaisSimulado.length" :key="pos" :value="pos">{{ pos }}</option>
+                  </select>
+                </div>
+                <div class="move-buttons">
+                  <button 
+                    type="button" 
+                    @click="moverInfoVerbalParaCima(index)" 
+                    :disabled="index === 0"
+                    class="move-button move-up"
+                    title="Mover para cima"
+                  >
+                    ↑
+                  </button>
+                  <button 
+                    type="button" 
+                    @click="moverInfoVerbalParaBaixo(index)" 
+                    :disabled="index === formData.informacoesVerbaisSimulado.length - 1"
+                    class="move-button move-down"
+                    title="Mover para baixo"
+                  >
+                    ↓
+                  </button>
+                </div>
+                <button type="button" @click="removerInfoVerbal(index)" class="remove-item-button-header">Remover Informação Verbal</button>
+              </div>
+            </div>
             <div class="form-group">
               <label :for="'infoVerbalContexto' + index">Contexto ou Pergunta-Chave do Candidato:</label>
               <input type="text" :id="'infoVerbalContexto' + index" v-model="info.contextoOuPerguntaChave" placeholder="Ex: Se o candidato perguntar sobre alergias...">
@@ -793,7 +1100,6 @@ watch(() => route.params.id, (newId) => {
               <label :for="'infoVerbalInformacao' + index">Informação a ser Fornecida pelo Ator:</label>
               <textarea :id="'infoVerbalInformacao' + index" v-model="info.informacao" rows="2" placeholder="Ex: Diga que o paciente é alérgico à penicilina."></textarea>
             </div>
-            <button type="button" @click="removerInfoVerbal(index)" class="remove-item-button">Remover Informação Verbal</button>
           </div>
           <button type="button" @click="adicionarInfoVerbal" class="add-item-button">+ Adicionar Informação Verbal</button>
 
@@ -829,6 +1135,33 @@ watch(() => route.params.id, (newId) => {
               <div class="form-group">
                 <label :for="'impressoConteudoImgPath' + index">Caminho/URL da Imagem:</label>
                 <input type="text" :id="'impressoConteudoImgPath' + index" v-model="impresso.conteudo.caminhoImagem" placeholder="https://exemplo.com/imagem.jpg">
+                
+                <!-- Campo de Upload de Imagem -->
+                <div class="upload-section mt-2">
+                  <label class="upload-label">
+                    <strong>📎 Carregar Imagem do Computador:</strong>
+                  </label>
+                  <input 
+                    type="file" 
+                    :id="'fileUpload' + index"
+                    accept="image/*"
+                    @change="handleImageUpload($event, index)"
+                    :disabled="uploadingImages[`impresso-${index}`]"
+                    class="file-input"
+                  >
+                  
+                  <!-- Indicador de Upload -->
+                  <div v-if="uploadingImages[`impresso-${index}`]" class="upload-progress">
+                    <div class="progress-bar">
+                      <div class="progress-fill"></div>
+                    </div>
+                    <span class="upload-text">📤 Carregando imagem...</span>
+                  </div>
+                  
+                  <div class="upload-info">
+                    <small>💡 Formatos aceitos: JPG, PNG, GIF, WebP. Máximo: 10MB</small>
+                  </div>
+                </div>
               </div>
               <div class="form-group">
                 <label :for="'impressoConteudoImgLaudo' + index">Laudo da Imagem (opcional):</label>
@@ -960,9 +1293,42 @@ watch(() => route.params.id, (newId) => {
             <span v-else>(Calculado: N/A)</span>
           </div>
 
+          <!-- Seção de Feedback da Estação -->
+          <h5>Feedback da Estação</h5>
+          <div class="feedback-section">
+            <div class="form-group">
+              <label for="feedbackResumoTecnico">Resumo Técnico do Feedback:</label>
+              <textarea 
+                id="feedbackResumoTecnico" 
+                v-model="formData.padraoEsperadoProcedimento.feedbackEstacao.resumoTecnico" 
+                rows="4" 
+                placeholder="Digite aqui o resumo técnico que será apresentado como feedback aos candidatos após a avaliação da estação..."
+              ></textarea>
+            </div>
+            
+            <div class="form-group">
+              <label>Fontes Bibliográficas e Referências:</label>
+              <div v-for="(fonte, index) in formData.padraoEsperadoProcedimento.feedbackEstacao.fontes" :key="'fonte-' + index" class="fonte-feedback-item">
+                <input 
+                  type="text" 
+                  v-model="formData.padraoEsperadoProcedimento.feedbackEstacao.fontes[index]" 
+                  :placeholder="'Fonte ' + (index + 1) + ' - Ex: Diretrizes SBC 2024, Protocolo Ministério da Saúde, etc.'"
+                >
+                <button 
+                  type="button" 
+                  @click="removerFonteFeedback(index)" 
+                  class="remove-item-button-small" 
+                  title="Remover Fonte"
+                  :disabled="formData.padraoEsperadoProcedimento.feedbackEstacao.fontes.length === 1"
+                >×</button>
+              </div>
+              <button type="button" @click="adicionarFonteFeedback" class="add-item-button-small">+ Adicionar Fonte</button>
+            </div>
+          </div>
+
           <button type="submit" :disabled="isSaving" class="save-manual-button">
             <span v-if="isSaving">Salvando Alterações...</span>
-            <span v-else>Salvar Alterações da Estação</span>
+            <span v-else>Salvar Alterações da Estação (Ctrl+S)</span>
           </button>
         </form>
       </div>
@@ -999,7 +1365,39 @@ watch(() => route.params.id, (newId) => {
         <button type="button" @click="cancelarAdicaoItem" class="cancel-button">Cancelar</button>
       </div>
     </div>
+  </div>
+
+  <!-- Dialog para escolher posição da nova informação verbal -->
+  <div v-if="showPositionDialogInfoVerbal" class="dialog-overlay" @click="cancelarAdicaoInfoVerbal">
+    <div class="dialog-content" @click.stop>
+      <h3>Escolher Posição da Nova Informação Verbal</h3>
+      <p>Onde você deseja inserir a nova informação verbal?</p>
+      
+      <div class="position-options">
+        <div v-for="(info, index) in formData.informacoesVerbaisSimulado" :key="'pos-' + index" class="position-option">
+          <button 
+            type="button" 
+            @click="adicionarInfoVerbalNaPosicao(index + 1)"
+            class="position-button"
+          >
+            Posição {{ index + 1 }} (antes de: "{{ info.contextoOuPerguntaChave || 'Informação Verbal ' + (index + 1) }}")
+          </button>
+        </div>
+        
+        <button 
+          type="button" 
+          @click="adicionarInfoVerbalNaPosicao('fim')"
+          class="position-button position-end"
+        >
+          No final (Posição {{ formData.informacoesVerbaisSimulado.length + 1 }})
+        </button>
+      </div>
+      
+      <div class="dialog-actions">
+        <button type="button" @click="cancelarAdicaoInfoVerbal" class="cancel-button">Cancelar</button>
+      </div>
     </div>
+  </div>
   </div>
 </template>
 
@@ -1388,6 +1786,21 @@ watch(() => route.params.id, (newId) => {
   border-color: #ffa39e; 
 }
 
+.status-message-internal.keyboard-shortcut { 
+  background-color: #f0f5ff; 
+  color: #1890ff; 
+  border-color: #69c0ff;
+  font-size: 14px;
+  animation: fadeInOut 2s ease-in-out;
+}
+
+@keyframes fadeInOut {
+  0% { opacity: 0; transform: translateY(-10px); }
+  20% { opacity: 1; transform: translateY(0); }
+  80% { opacity: 1; transform: translateY(0); }
+  100% { opacity: 0; transform: translateY(-10px); }
+}
+
 /* Estilos para controles de reordenação */
 .pep-item-header {
   display: flex;
@@ -1470,6 +1883,28 @@ watch(() => route.params.id, (newId) => {
 
 .move-button.move-down {
   color: #dc3545;
+}
+
+/* Estilos para controles de informações verbais */
+.info-verbal-item {
+  border: 1px solid #e9ecef;
+  border-radius: 6px;
+  background-color: #f8f9fa;
+}
+
+.info-verbal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 15px;
+  padding-bottom: 10px;
+  border-bottom: 2px solid #e9ecef;
+}
+
+.info-verbal-controls {
+  display: flex;
+  align-items: center;
+  gap: 15px;
 }
 
 /* Estilos para o dialog de posição */
@@ -1610,5 +2045,132 @@ watch(() => route.params.id, (newId) => {
 
 .remove-item-button-header:active {
   transform: translateY(0);
+}
+
+/* Estilos para upload de imagens */
+.upload-section {
+  border: 2px dashed #e0e0e0;
+  border-radius: 8px;
+  padding: 15px;
+  background-color: #f9f9f9;
+  margin-top: 10px;
+}
+
+.upload-label {
+  display: block;
+  margin-bottom: 10px;
+  color: #333;
+  font-size: 14px;
+}
+
+.file-input {
+  width: 100%;
+  padding: 8px;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  background-color: white;
+  cursor: pointer;
+}
+
+.file-input:disabled {
+  background-color: #f5f5f5;
+  cursor: not-allowed;
+}
+
+.upload-progress {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 10px;
+}
+
+.progress-bar {
+  flex: 1;
+  height: 8px;
+  background-color: #e0e0e0;
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.progress-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #4caf50, #8bc34a);
+  animation: progress-animation 1.5s ease-in-out infinite;
+  width: 100%;
+}
+
+@keyframes progress-animation {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(100%); }
+}
+
+.upload-text {
+  font-size: 14px;
+  color: #4caf50;
+  font-weight: 500;
+}
+
+.upload-info {
+  margin-top: 5px;
+}
+
+.upload-info small {
+  color: #666;
+  font-size: 12px;
+}
+
+.mt-2 {
+  margin-top: 0.5rem;
+}
+
+/* Estilos para seção de feedback */
+.feedback-section {
+  background-color: #f8f9fa;
+  border: 1px solid #e9ecef;
+  border-left: 4px solid #6f42c1;
+  border-radius: 5px;
+  padding: 20px;
+  margin: 20px 0;
+}
+
+.fonte-feedback-item {
+  display: flex;
+  align-items: center;
+  margin-bottom: 8px;
+  gap: 8px;
+}
+
+.fonte-feedback-item input[type="text"] {
+  flex-grow: 1;
+}
+
+.fonte-feedback-item .remove-item-button-small {
+  background-color: #fd7e14;
+  color: white;
+  border: none;
+  padding: 5px 8px;
+  border-radius: 3px;
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: bold;
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.fonte-feedback-item .remove-item-button-small:hover {
+  background-color: #e6690b;
+}
+
+.fonte-feedback-item .remove-item-button-small:disabled {
+  background-color: #adb5bd;
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.fonte-feedback-item .remove-item-button-small:disabled:hover {
+  background-color: #adb5bd;
 }
 </style>

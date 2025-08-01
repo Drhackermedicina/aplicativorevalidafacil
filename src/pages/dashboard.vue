@@ -2,7 +2,7 @@
 import trophy from '@/assets/images/misc/trophy.png';
 import { currentUser } from '@/plugins/auth';
 import { collection, doc, getDoc, getDocs, getFirestore, limit, orderBy, query } from 'firebase/firestore';
-import { onMounted, ref } from 'vue';
+import { onMounted, onUnmounted, ref } from 'vue';
 import { useRouter } from 'vue-router';
 
 const db = getFirestore();
@@ -74,8 +74,25 @@ async function buscarRankingUsuario() {
   }
 }
 
+// Função para garantir que o sidebar permaneça sempre aberto
+function ensureSidebarOpen() {
+  const wrapper = document.querySelector('.layout-wrapper');
+  if (wrapper) {
+    // Remove a classe collapsed se existir, garantindo que o sidebar fique aberto
+    wrapper.classList.remove('layout-vertical-nav-collapsed');
+  }
+}
+
 onMounted(() => {
   buscarRankingUsuario();
+  // Garante que o sidebar esteja sempre aberto no dashboard
+  ensureSidebarOpen();
+});
+
+onUnmounted(() => {
+  // Remove a classe collapsed ao sair da página para evitar conflitos
+  const wrapper = document.querySelector('.layout-wrapper');
+  wrapper?.classList.remove('layout-vertical-nav-collapsed');
 });
 
 function irParaRankingGeral() {

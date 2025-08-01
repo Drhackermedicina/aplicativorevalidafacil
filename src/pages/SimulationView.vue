@@ -19,6 +19,17 @@ const processRoteiro = computed(() => {
   }
 });
 
+// Função para processar roteiro especificamente para ator (removendo aspas simples)
+const processRoteiroActor = computed(() => {
+  return (text) => {
+    if (!text) return '';
+    if (isActorOrEvaluator.value) {
+      return formatActorText(text);
+    }
+    return formatActorText(text);
+  }
+});
+
 // Função para formatar texto do roteiro do ator
 function formatActorText(text) {
   if (!text) return '';
@@ -26,7 +37,12 @@ function formatActorText(text) {
   // Remove tags HTML existentes mantendo o texto
   const tempDiv = document.createElement('div');
   tempDiv.innerHTML = text;
-  const plainText = tempDiv.innerText;
+  let plainText = tempDiv.innerText;
+  
+  // Remove aspas simples apenas para ator/avaliador
+  if (isActorOrEvaluator.value) {
+    plainText = plainText.replace(/'/g, '');
+  }
   
   // Separa o texto em linhas, considerando múltiplos tipos de quebras
   const lines = plainText
@@ -143,6 +159,10 @@ const candidateReceivedScores = ref({});
 const candidateReceivedTotalScore = ref(0);
 const actorReleasedImpressoIds = ref({});
 
+// Refs para controlar carregamento de imagens
+const imageLoadAttempts = ref({});
+const imageLoadSources = ref({});
+
 // Refs para controlar itens marcados do roteiro
 const markedScriptContexts = ref({});
 const markedScriptSentences = ref({});
@@ -221,6 +241,8 @@ function playSoundEffect() {
   } catch (e) { console.warn("Não foi possível tocar o som:", e);
   }
 }
+
+
 
 // --- NOVO: Função para Formatar a Descrição do Item do PEP para Exibição ---
 function formatItemDescriptionForDisplay(descriptionText, itemTitle = '') {
@@ -443,9 +465,9 @@ function connectWebSocket() {
     console.log('>>> EVENTO RECEBIDO: TIMER_END <<<');
     timerDisplay.value = "00:00";
     if (!simulationEnded.value) {
-      playSoundEffect();
+      playSoundEffect(); // Som do final da estação
+      simulationEnded.value = true; // Marca como encerrada ANTES para evitar som duplicado
     }
-    simulationEnded.value = true;
     simulationWasManuallyEndedEarly.value = false; // Garante que é false se terminou por tempo
     
     // Notificação para o candidato
@@ -459,9 +481,9 @@ function connectWebSocket() {
     const previousTimerDisplay = timerDisplay.value;
 
     if (!simulationEnded.value) {
-        playSoundEffect();
+        playSoundEffect(); // Som do final da estação
+        simulationEnded.value = true; // Marca como encerrada ANTES para evitar som duplicado
     }
-    simulationEnded.value = true;
 
     // A lógica para `simulationWasManuallyEndedEarly` permanece aqui,
     // pois ela é usada para desabilitar a 'Submissão de Avaliação'.
@@ -510,10 +532,8 @@ function connectWebSocket() {
         candidateReceivedTotalScore.value = data.totalScore;
       }
       
-      // Garantir que o usuário receba feedback visual
+      // Log para debug (notificação removida - feedback visual já disponível no PEP)
       if (simulationEnded.value && data.totalScore > 0) {
-        showNotification(`Você recebeu sua avaliação com nota ${data.totalScore.toFixed(2)}!`, 
-          data.totalScore >= 7 ? 'success' : data.totalScore >= 5 ? 'warning' : 'error');
         console.log('CANDIDATO: Avaliação recebida com nota final:', data.totalScore);
       }
     }
@@ -729,6 +749,14 @@ onMounted(() => {
   console.log("SimulationView Montado. Configurando sessão inicial...");
   setupSession();
   checkCandidateMeetLink();
+  
+  // Inicializa o sidebar como fechado por padrão
+  setTimeout(() => {
+    const wrapper = document.querySelector('.layout-wrapper');
+    if (wrapper && !wrapper.classList.contains('layout-vertical-nav-collapsed')) {
+      wrapper.classList.add('layout-vertical-nav-collapsed');
+    }
+  }, 100); // Pequeno delay para garantir que o DOM foi renderizado
 });
 watch(() => route.fullPath, (newPath, oldPath) => {
   if (newPath !== oldPath && route.name === 'SimulationView') {
@@ -843,7 +871,64 @@ function releasePepToCandidate() {
   console.log(`SOCKET: (${userRole.value}) Emitindo ACTOR_RELEASE_PEP:`, payload);
   socket.value.emit('ACTOR_RELEASE_PEP', payload);
   pepReleasedToCandidate.value = true;
+}
 
+// --- Funções para controle de carregamento de imagens ---
+function getImageId(impressoId, context) {
+  return `${impressoId}-${context}`;
+}
+
+function getImageSource(imagePath, imageId) {
+  // Se ainda não foi registrada, inicia com a URL original
+  if (!imageLoadSources.value[imageId]) {
+    imageLoadSources.value = {
+      ...imageLoadSources.value,
+      [imageId]: imagePath
+    };
+  }
+  return imageLoadSources.value[imageId];
+}
+
+function handleImageError(imagePath, imageId) {
+  console.log(`[DEBUG] Erro ao carregar imagem: ${imagePath} (ID: ${imageId})`);
+  
+  // Incrementa tentativas
+  const attempts = (imageLoadAttempts.value[imageId] || 0) + 1;
+  imageLoadAttempts.value = {
+    ...imageLoadAttempts.value,
+    [imageId]: attempts
+  };
+  
+  // Máximo de 3 tentativas
+  if (attempts <= 3) {
+    console.log(`[DEBUG] Tentativa ${attempts}/3 de recarregar imagem: ${imagePath}`);
+    
+    // Força recarregamento adicionando timestamp
+    const separator = imagePath.includes('?') ? '&' : '?';
+    const newUrl = `${imagePath}${separator}reload=${Date.now()}&attempt=${attempts}`;
+    
+    // Atualiza a fonte da imagem
+    imageLoadSources.value = {
+      ...imageLoadSources.value,
+      [imageId]: newUrl
+    };
+    
+    console.log(`[DEBUG] Nova URL da imagem: ${newUrl}`);
+  } else {
+    console.error(`[DEBUG] Falha definitiva ao carregar imagem após 3 tentativas: ${imagePath}`);
+  }
+}
+
+function handleImageLoad(imageId) {
+  console.log(`[DEBUG] Imagem carregada com sucesso: ${imageId}`);
+  // Reset tentativas quando carrega com sucesso
+  if (imageLoadAttempts.value[imageId]) {
+    delete imageLoadAttempts.value[imageId];
+  }
+}
+
+// Função para manter os callbacks de avaliação
+function sendEvaluationScores() {
   // Envia os scores iniciais ao liberar o PEP (se já houver algum)
   if (socket.value?.connected) {
       console.log('ATOR/AVALIADOR: Enviando scores iniciais ao liberar PEP:', evaluationScores.value);
@@ -1788,7 +1873,7 @@ function processInfrastructureItems(items) {
                                 'uppercase-title': isUpperCase(info.contextoOuPerguntaChave) && !markedScriptContexts[idx]
                               }"
                               @click="(e) => toggleScriptContext(idx, e)"
-                              v-html="processRoteiro(info.contextoOuPerguntaChave)">
+                              v-html="processRoteiroActor(info.contextoOuPerguntaChave)">
                             </span>
                           </div>
                           
@@ -1804,7 +1889,7 @@ function processInfrastructureItems(items) {
                                      'uppercase-content': isUpperCase(paragraph) && !isParagraphMarked(idx, pIdx)
                                    }"
                                    @click="(e) => toggleParagraphMark(idx, pIdx, e)"
-                                   v-html="processRoteiro(paragraph)">
+                                   v-html="processRoteiroActor(paragraph)">
                                  </span>
                               </div>
                           </div>
@@ -1813,22 +1898,21 @@ function processInfrastructureItems(items) {
                 </VCardText>
             </VCard>
 
-            <VCard class="mb-6" v-if="stationData?.materiaisDisponiveis?.impressos?.length > 0">
+            <VCard class="mb-6" v-if="isActorOrEvaluator && stationData?.materiaisDisponiveis?.impressos?.length > 0">
               <VCardTitle>Liberar "Impressos" para Candidato</VCardTitle>
               <VCardText>
                 <div v-for="impresso in stationData.materiaisDisponiveis.impressos" :key="impresso.idImpresso" class="impresso-control-item">
                   <div class="d-flex align-center gap-2 flex-wrap">
                     <VBtn
-                      @click="releaseData(impresso.idImpresso)"
-                      :disabled="!simulationStarted || !!actorReleasedImpressoIds[impresso.idImpresso]"
-                      :color="!!actorReleasedImpressoIds[impresso.idImpresso] ? 'grey' : 'success'"
-                      :prepend-icon="!!actorReleasedImpressoIds[impresso.idImpresso] ? 'ri-lock-unlock-line' : 'ri-lock-line'"
+                      @click="toggleActorImpressoVisibility(impresso.idImpresso)"
+                      :color="actorVisibleImpressoContent[impresso.idImpresso] ? 'primary' : 'info'"
+                      :prepend-icon="actorVisibleImpressoContent[impresso.idImpresso] ? 'ri-eye-off-line' : 'ri-eye-line'"
                       class="impresso-btn"
                     >
                       {{ impresso.tituloImpresso }}
                     </VBtn>
-                    <VBtn icon variant="tonal" size="small" @click="toggleActorImpressoVisibility(impresso.idImpresso)">
-                      <VIcon :icon="actorVisibleImpressoContent[impresso.idImpresso] ? 'ri-eye-off-line' : 'ri-eye-line'" />
+                    <VBtn icon variant="tonal" size="small" @click="releaseData(impresso.idImpresso)" :disabled="!!actorReleasedImpressoIds[impresso.idImpresso]">
+                      <VIcon :icon="!!actorReleasedImpressoIds[impresso.idImpresso] ? 'ri-lock-unlock-line' : 'ri-lock-line'" />
                     </VBtn>
                   </div>
                   <VExpandTransition>
@@ -1837,7 +1921,14 @@ function processInfrastructureItems(items) {
                       <div v-if="impresso.tipoConteudo === 'texto_simples'" v-html="impresso.conteudo.texto" />
                       <div v-else-if="impresso.tipoConteudo === 'imagem_com_texto'">
                         <p v-if="impresso.conteudo.textoDescritivo" v-html="impresso.conteudo.textoDescritivo"></p>
-                        <img v-if="impresso.conteudo.caminhoImagem" :src="impresso.conteudo.caminhoImagem" :alt="impresso.tituloImpresso" class="impresso-imagem"/>
+                        <img 
+                          v-if="impresso.conteudo.caminhoImagem" 
+                          :src="getImageSource(impresso.conteudo.caminhoImagem, getImageId(impresso.idImpresso, 'actor-img-texto'))" 
+                          :alt="impresso.tituloImpresso" 
+                          class="impresso-imagem"
+                          @error="handleImageError(impresso.conteudo.caminhoImagem, getImageId(impresso.idImpresso, 'actor-img-texto'))"
+                          @load="handleImageLoad(getImageId(impresso.idImpresso, 'actor-img-texto'))"
+                        />
                         <p v-if="impresso.conteudo.legendaImagem"><em>{{ impresso.conteudo.legendaImagem }}</em></p>
                         <div v-if="impresso.conteudo.laudo" class="laudo-impresso"><pre>{{ impresso.conteudo.laudo }}</pre></div>
                       </div>
@@ -1868,7 +1959,14 @@ function processInfrastructureItems(items) {
                       </div>
                       <div v-else-if="impresso.tipoConteudo === 'imagem_descritiva'">
                           <p v-if="impresso.conteudo.descricao" v-html="impresso.conteudo.descricao"></p>
-                          <img v-if="impresso.conteudo.caminhoImagem" :src="impresso.conteudo.caminhoImagem" :alt="impresso.tituloImpresso" class="impresso-imagem"/>
+                          <img 
+                            v-if="impresso.conteudo.caminhoImagem" 
+                            :src="getImageSource(impresso.conteudo.caminhoImagem, getImageId(impresso.idImpresso, 'actor-img-desc'))" 
+                            :alt="impresso.tituloImpresso" 
+                            class="impresso-imagem"
+                            @error="handleImageError(impresso.conteudo.caminhoImagem, getImageId(impresso.idImpresso, 'actor-img-desc'))"
+                            @load="handleImageLoad(getImageId(impresso.idImpresso, 'actor-img-desc'))"
+                          />
                       </div>
                       <pre v-else>{{ impresso.conteudo }}</pre>
                     </div>
@@ -2102,7 +2200,7 @@ function processInfrastructureItems(items) {
                 </VCard>
 
                 <!-- Card para Tarefas (CANDIDATO - CORPO PRINCIPAL) -->
-                <VCard class="mb-6" v-if="stationData.instrucoesParticipante?.tarefasPrincipais?.length">
+                <VCard class="mb-6" v-if="simulationStarted && stationData.instrucoesParticipante?.tarefasPrincipais?.length">
                     <VCardItem>
                         <template #prepend>
                             <VIcon icon="ri-task-line" color="success" />
@@ -2129,7 +2227,14 @@ function processInfrastructureItems(items) {
                             <div v-if="impresso.tipoConteudo === 'texto_simples'" v-html="impresso.conteudo.texto" />
                             <div v-else-if="impresso.tipoConteudo === 'imagem_com_texto'">
                                 <p v-if="impresso.conteudo.textoDescritivo" v-html="impresso.conteudo.textoDescritivo"></p>
-                                <img v-if="impresso.conteudo.caminhoImagem" :src="impresso.conteudo.caminhoImagem" :alt="impresso.tituloImpresso" class="impresso-imagem"/>
+                                <img 
+                                  v-if="impresso.conteudo.caminhoImagem" 
+                                  :src="getImageSource(impresso.conteudo.caminhoImagem, getImageId(impresso.idImpresso, 'candidate-img-texto'))" 
+                                  :alt="impresso.tituloImpresso" 
+                                  class="impresso-imagem"
+                                  @error="handleImageError(impresso.conteudo.caminhoImagem, getImageId(impresso.idImpresso, 'candidate-img-texto'))"
+                                  @load="handleImageLoad(getImageId(impresso.idImpresso, 'candidate-img-texto'))"
+                                />
                                 <p v-if="impresso.conteudo.legendaImagem"><em>{{ impresso.conteudo.legendaImagem }}</em></p>
                                 <div v-if="impresso.conteudo.laudo" class="laudo-impresso"><pre>{{ impresso.conteudo.laudo }}</pre></div>
                             </div>
@@ -2160,7 +2265,14 @@ function processInfrastructureItems(items) {
                             </div>
                             <div v-else-if="impresso.tipoConteudo === 'imagem_descritiva'">
                                 <p v-if="impresso.conteudo.descricao" v-html="impresso.conteudo.descricao"></p>
-                                <img v-if="impresso.conteudo.caminhoImagem" :src="impresso.conteudo.caminhoImagem" :alt="impresso.tituloImpresso" class="impresso-imagem"/>
+                                <img 
+                                  v-if="impresso.conteudo.caminhoImagem" 
+                                  :src="getImageSource(impresso.conteudo.caminhoImagem, getImageId(impresso.idImpresso, 'candidate-img-desc'))" 
+                                  :alt="impresso.tituloImpresso" 
+                                  class="impresso-imagem"
+                                  @error="handleImageError(impresso.conteudo.caminhoImagem, getImageId(impresso.idImpresso, 'candidate-img-desc'))"
+                                  @load="handleImageLoad(getImageId(impresso.idImpresso, 'candidate-img-desc'))"
+                                />
                             </div>
                             <pre v-else>{{ impresso.conteudo }}</pre>
                             </VExpansionPanelText>
@@ -2178,27 +2290,6 @@ function processInfrastructureItems(items) {
                       Checklist de Avaliação (PEP)
                     </VCardTitle>
                   </VCardItem>
-                  
-                  <!-- Adicionar resumo da nota total -->
-                  <VCardText v-if="candidateReceivedTotalScore > 0" class="pt-0">
-                    <VAlert
-                      variant="tonal"
-                      :color="candidateReceivedTotalScore >= 7 ? 'success' : candidateReceivedTotalScore >= 5 ? 'warning' : 'error'"
-                      class="mb-4"
-                    >
-                      <div class="d-flex justify-space-between align-center">
-                        <div>
-                          <div class="text-h6 mb-1">Sua nota final</div>
-                          <div class="text-body-2">
-                            {{ candidateReceivedTotalScore >= 7 ? 'Parabéns!' : candidateReceivedTotalScore >= 5 ? 'Satisfatório' : 'Precisa melhorar' }}
-                          </div>
-                        </div>
-                        <div class="text-h4 font-weight-bold">
-                          {{ candidateReceivedTotalScore.toFixed(2) }}
-                        </div>
-                      </div>
-                    </VAlert>
-                  </VCardText>
                   
                   <VTable class="pep-table">
                       <thead>
@@ -2287,6 +2378,27 @@ function processInfrastructureItems(items) {
                       </tbody>
                   </VTable>
                   
+                  <!-- Resumo da nota total - movido para o final -->
+                  <VCardText v-if="candidateReceivedTotalScore > 0" class="pt-4">
+                    <VAlert
+                      variant="tonal"
+                      :color="candidateReceivedTotalScore >= 7 ? 'success' : candidateReceivedTotalScore >= 5 ? 'warning' : 'error'"
+                      class="mb-4"
+                    >
+                      <div class="d-flex justify-space-between align-center">
+                        <div>
+                          <div class="text-h6 mb-1">Sua nota final</div>
+                          <div class="text-body-2">
+                            {{ candidateReceivedTotalScore >= 7 ? 'Parabéns!' : candidateReceivedTotalScore >= 5 ? 'Satisfatório' : 'Precisa melhorar' }}
+                          </div>
+                        </div>
+                        <div class="text-h4 font-weight-bold">
+                          {{ candidateReceivedTotalScore.toFixed(2) }}
+                        </div>
+                      </div>
+                    </VAlert>
+                  </VCardText>
+                  
                   <!-- Feedback da Estação (para o candidato - só após término) -->
                   <VCardText v-if="checklistData?.feedbackEstacao && simulationEnded">
                     <VExpansionPanels variant="accordion" class="mt-2">
@@ -2364,7 +2476,7 @@ function processInfrastructureItems(items) {
                         </div>
                     </VCardText>
                 </VCard>
-                <VCard v-if="stationData?.instrucoesParticipante?.tarefasPrincipais?.length">
+                <VCard v-if="simulationStarted && stationData?.instrucoesParticipante?.tarefasPrincipais?.length">
                     <VCardItem>
                         <template #prepend>
                             <VIcon icon="ri-task-line" color="success" />
@@ -2515,7 +2627,7 @@ function processInfrastructureItems(items) {
     padding-left: 20px;
     line-height: 1.6;
     font-size: 0.85rem; /* Reduzido 1-2 números menores */
-    color: #FFD700; /* Amarelo forte para destaque */
+    color: #FF4444; /* Vermelho para destaque do candidato */
     font-weight: 600; /* Bold para melhor legibilidade com fonte menor */
 }
 
