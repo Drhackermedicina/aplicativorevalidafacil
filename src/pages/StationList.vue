@@ -51,6 +51,7 @@ const isAdmin = computed(() => {
   const adminStatus = currentUser.value && (
     currentUser.value.uid === 'RtfNENOqMUdw7pvgeeaBVSuin662' || 
     currentUser.value.uid === 'KiSITAxXMAY5uU3bOPW5JMQPent2' ||
+    currentUser.value.uid === 'UD7S8aiyR8TJXHyxdw29BHNfjEf1' || // Novo admin adicionado
     currentUser.value.uid === 'lNwhdYgMwLhS1ZyufRzw9xLD10y1' // Novo admin adicionado
   );
   console.log(`[DEBUG Admin] CurrentUser: ${currentUser.value?.uid} | isAdmin: ${adminStatus}`);

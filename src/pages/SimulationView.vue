@@ -179,6 +179,7 @@ const isAdmin = computed(() => {
   return currentUser.value && (
     currentUser.value.uid === 'KiSITAxXMAY5uU3bOPW5JMQPent2' ||
     currentUser.value.uid === 'RtfNENOqMUdw7pvgeeaBVSuin662' ||
+    currentUser.value.uid === 'UD7S8aiyR8TJXHyxdw29BHNfjEf1' ||
     currentUser.value.uid === 'lNwhdYgMwLhS1ZyufRzw9xLD10y1'
   );
 });
@@ -300,11 +301,16 @@ async function fetchSimulationData(currentStationId) {
       checklistData.value = stationData.value.padraoEsperadoProcedimento;
       
       // Verifica feedbackEstacao em diferentes locais (estação raiz ou dentro do PEP)
+      console.log("FEEDBACK: Verificando feedbackEstacao...");
+      console.log("FEEDBACK: stationData.feedbackEstacao existe?", !!stationData.value.feedbackEstacao);
+      console.log("FEEDBACK: checklistData.feedbackEstacao existe?", !!checklistData.value.feedbackEstacao);
+      console.log("FEEDBACK: checklistData.feedbackEstacao conteúdo:", checklistData.value.feedbackEstacao);
+      
       if (stationData.value.feedbackEstacao && !checklistData.value.feedbackEstacao) {
         checklistData.value.feedbackEstacao = stationData.value.feedbackEstacao;
         console.log("FEEDBACK: feedbackEstacao carregado da raiz da estação");
       } else if (checklistData.value.feedbackEstacao) {
-        console.log("FEEDBACK: feedbackEstacao já presente no PEP");
+        console.log("FEEDBACK: feedbackEstacao já presente no PEP - OK!");
       } else {
         console.log("FEEDBACK: Nenhum feedbackEstacao encontrado para esta estação");
       }

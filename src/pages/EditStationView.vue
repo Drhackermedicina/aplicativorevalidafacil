@@ -1,9 +1,9 @@
 <script setup>
-import { computed, ref, watch, onMounted } from 'vue';
-import { useRoute, useRouter } from 'vue-router';
-import { db } from '@/plugins/firebase.js';
-import { doc, getDoc, updateDoc, deleteDoc, serverTimestamp } from 'firebase/firestore';
 import { currentUser } from '@/plugins/auth.js';
+import { db } from '@/plugins/firebase.js';
+import { deleteDoc, doc, getDoc, serverTimestamp, updateDoc } from 'firebase/firestore';
+import { computed, onMounted, ref, watch } from 'vue';
+import { useRoute, useRouter } from 'vue-router';
 
 const route = useRoute();
 const router = useRouter();
@@ -30,6 +30,8 @@ function getInitialFormData() {
     descricaoCasoCompleta: '',
     tarefasPrincipais: '',
     avisosImportantes: '',
+    roteiroCandidato: '',
+    orientacoesCandidato: '',
     informacoesVerbaisSimulado: [{ contextoOuPerguntaChave: '', informacao: '' }],
     impressos: [{ idImpresso: `imp_${Date.now()}_1`, tituloImpresso: '', tipoConteudo: 'texto_simples', conteudo: { texto: ''} }],
     padraoEsperadoProcedimento: {
@@ -45,18 +47,26 @@ function getInitialFormData() {
               inadequado: { criterio: 'Não realizou ou realizou incorretamente.', pontos: 0 }
           }
       }],
-      pontuacaoTotalEstacao: 0
+      pontuacaoTotalEstacao: 0,
+      feedbackEstacao: {
+        resumoTecnico: '',
+        fontes: []
+      }
     }
   };
 }
 
 const formData = ref(getInitialFormData());
 
+// Variável para armazenar dados originais que devem ser preservados
+const originalStationData = ref(null);
+
 // Verifica se o usuário atual é admin
 const isAdmin = computed(() => {
   return currentUser.value && (
     currentUser.value.uid === 'KiSITAxXMAY5uU3bOPW5JMQPent2' ||
     currentUser.value.uid === 'RtfNENOqMUdw7pvgeeaBVSuin662' ||
+    currentUser.value.uid === 'UD7S8aiyR8TJXHyxdw29BHNfjEf1' ||
     currentUser.value.uid === 'lNwhdYgMwLhS1ZyufRzw9xLD10y1'
   );
 });
@@ -98,6 +108,10 @@ async function fetchStationData() {
     
     if (docSnap.exists()) {
       const stationData = { id: docSnap.id, ...docSnap.data() };
+      
+      // Salvar dados originais para preservação
+      originalStationData.value = JSON.parse(JSON.stringify(stationData));
+      
       loadStationIntoForm(stationData);
       successMessage.value = `Estação "${stationData.tituloEstacao}" carregada com sucesso!`;
       setTimeout(() => { successMessage.value = ''; }, 3000);
@@ -142,6 +156,10 @@ function loadStationIntoForm(stationData) {
   
   const avisos = ip.avisosImportantes || [];
   form.avisosImportantes = Array.isArray(avisos) ? avisos.join('\n') : (avisos || '');
+  
+  // Carregar campos específicos do candidato
+  form.roteiroCandidato = stationData.roteiroCandidato || '';
+  form.orientacoesCandidato = stationData.orientacoesCandidato || '';
   
   // Cenário de atendimento
   const ca = ip.cenarioAtendimento || {};
@@ -260,6 +278,13 @@ function loadStationIntoForm(stationData) {
   
   form.padraoEsperadoProcedimento.pontuacaoTotalEstacao = parseFloat(jsonPep.pontuacaoTotalEstacao) || 0;
   
+  // Carregar feedbackEstacao se existir
+  const feedbackExistente = jsonPep.feedbackEstacao || {};
+  form.padraoEsperadoProcedimento.feedbackEstacao = {
+    resumoTecnico: feedbackExistente.resumoTecnico || '',
+    fontes: Array.isArray(feedbackExistente.fontes) ? feedbackExistente.fontes : []
+  };
+  
   // Atualiza números oficiais dos itens após carregar
   setTimeout(() => {
     atualizarNumerosOficiaisItens();
@@ -270,6 +295,7 @@ function loadStationIntoForm(stationData) {
 function construirObjetoEstacao() {
   const pepForm = formData.value.padraoEsperadoProcedimento;
   const idEstacaoBase = formData.value.idEstacao.trim();
+  const originalData = originalStationData.value || {};
 
   const estacaoAtualizada = {
     idEstacao: idEstacaoBase,
@@ -280,6 +306,14 @@ function construirObjetoEstacao() {
     palavrasChave: formData.value.palavrasChave.split(',').map(kw => kw.trim()).filter(kw => kw),
     nivelDificuldade: formData.value.nivelDificuldade,
     origem: 'REVALIDA_FACIL',
+    roteiroCandidato: formData.value.roteiroCandidato.trim(),
+    orientacoesCandidato: formData.value.orientacoesCandidato.trim(),
+
+    // Preservar metadados originais
+    ...(originalData.dataCriacao && { dataCriacao: originalData.dataCriacao }),
+    ...(originalData.dataModificacao && { dataModificacao: originalData.dataModificacao }),
+    ...(originalData.criadorId && { criadorId: originalData.criadorId }),
+    ...(originalData.versao && { versao: originalData.versao }),
 
     instrucoesParticipante: {
       cenarioAtendimento: {
@@ -331,7 +365,8 @@ function construirObjetoEstacao() {
           contextoOuPerguntaChave: info.contextoOuPerguntaChave.trim(),
           informacao: info.informacao.trim()
       })),
-      perguntasAtorSimulado: []
+      // Preservar perguntasAtorSimulado existentes
+      perguntasAtorSimulado: originalData.materiaisDisponiveis?.perguntasAtorSimulado || []
     },
 
     padraoEsperadoProcedimento: {
@@ -352,87 +387,27 @@ function construirObjetoEstacao() {
               inadequado: { criterio: item.pontuacoes.inadequado.criterio.trim(), pontos: parseFloat(item.pontuacoes.inadequado.pontos) || 0 },
           }
       })),
-      pontuacaoTotalEstacao: calcularPontuacaoTotalPEP.value
+      pontuacaoTotalEstacao: calcularPontuacaoTotalPEP.value,
+      feedbackEstacao: pepForm.feedbackEstacao || {
+        resumoTecnico: '',
+        fontes: []
+      }
     }
   };
 
   if (estacaoAtualizada.instrucoesParticipante.avisosImportantes && estacaoAtualizada.instrucoesParticipante.avisosImportantes.length === 0) {
       delete estacaoAtualizada.instrucoesParticipante.avisosImportantes;
   }
-  if (estacaoAtualizada.materiaisDisponiveis.perguntasAtorSimulado && estacaoAtualizada.materiaisDisponiveis.perguntasAtorSimulado.length === 0) {
-      delete estacaoAtualizada.materiaisDisponiveis.perguntasAtorSimulado;
+  
+  // Limpar campos vazios do candidato
+  if (!estacaoAtualizada.roteiroCandidato) {
+      delete estacaoAtualizada.roteiroCandidato;
   }
-
-  // Adiciona feedback técnico da estação baseado na especialidade
-  estacaoAtualizada.feedbackEstacao = gerarFeedbackEstacao(estacaoAtualizada);
+  if (!estacaoAtualizada.orientacoesCandidato) {
+      delete estacaoAtualizada.orientacoesCandidato;
+  }
 
   return estacaoAtualizada;
-}
-
-// Função para gerar feedback técnico da estação baseado na especialidade
-function gerarFeedbackEstacao(estacao) {
-  const especialidade = estacao.especialidade?.toLowerCase() || '';
-  const titulo = estacao.tituloEstacao || '';
-  
-  // Mapear especialidades para templates de feedback
-  const feedbackTemplates = {
-    'gastroenterologia': {
-      resumoTecnico: "Esta estação aborda conceitos fundamentais de gastroenterologia, incluindo fisiopatologia, diagnóstico e manejo terapêutico. A avaliação foca na capacidade do candidato de realizar anamnese direcionada, exame físico específico do aparelho digestório, interpretação de exames complementares e formulação de hipóteses diagnósticas adequadas. O conhecimento sobre indicações terapêuticas, medicamentosas e não medicamentosas, é essencial para o manejo adequado dos pacientes.",
-      fontes: [
-        "Federação Brasileira de Gastroenterologia (FBG). Diretrizes Clínicas. 2024.",
-        "UpToDate. Gastroenterology Clinical Topics. Acessado em 2024.",
-        "Sociedade Brasileira de Endoscopia Digestiva (SOBED). Consensos e Diretrizes. 2023."
-      ]
-    },
-    'cardiologia': {
-      resumoTecnico: "Esta estação abrange aspectos fundamentais da cardiologia clínica, incluindo fisiopatologia cardiovascular, semiologia específica, interpretação de exames complementares (ECG, ecocardiografia, biomarcadores) e manejo terapêutico. O candidato deve demonstrar competência na avaliação de fatores de risco cardiovascular, reconhecimento de sinais e sintomas de cardiopatias, formulação de hipóteses diagnósticas e instituição de tratamento adequado.",
-      fontes: [
-        "Sociedade Brasileira de Cardiologia (SBC). Diretrizes Brasileiras de Cardiologia. 2024.",
-        "American Heart Association (AHA). Guidelines and Statements. 2023.",
-        "European Society of Cardiology (ESC). Clinical Practice Guidelines. 2024."
-      ]
-    },
-    'pneumologia': {
-      resumoTecnico: "Esta estação enfoca conhecimentos essenciais de pneumologia, abordando fisiopatologia respiratória, semiologia pulmonar, interpretação de exames de imagem e função pulmonar, e manejo clínico de doenças respiratórias. O candidato deve demonstrar habilidade na anamnese respiratória direcionada, exame físico do tórax, análise de radiografias e tomografias, além de conhecimento sobre terapêuticas específicas.",
-      fontes: [
-        "Sociedade Brasileira de Pneumologia e Tisiologia (SBPT). Diretrizes Brasileiras. 2024.",
-        "American Thoracic Society (ATS). Clinical Practice Guidelines. 2023.",
-        "Global Initiative for Chronic Obstructive Lung Disease (GOLD). 2024."
-      ]
-    },
-    'endocrinologia': {
-      resumoTecnico: "Esta estação contempla aspectos fundamentais da endocrinologia, incluindo fisiopatologia hormonal, diagnóstico diferencial de distúrbios endócrinos, interpretação de exames laboratoriais específicos e manejo terapêutico. O candidato deve demonstrar conhecimento sobre metabolismo, diabetes mellitus, distúrbios tireoidianos, alterações do eixo hipotálamo-hipófise e outras endocrinopatias relevantes.",
-      fontes: [
-        "Sociedade Brasileira de Endocrinologia e Metabologia (SBEM). Diretrizes. 2024.",
-        "American Diabetes Association (ADA). Standards of Medical Care. 2024.",
-        "Endocrine Society. Clinical Practice Guidelines. 2023."
-      ]
-    },
-    'default': {
-      resumoTecnico: `Esta estação clínica aborda conhecimentos fundamentais da área médica, com foco em ${especialidade || 'medicina geral'}. A avaliação contempla a capacidade do candidato de realizar anamnese estruturada, exame físico direcionado, interpretação de exames complementares e formulação de hipóteses diagnósticas. O manejo terapêutico apropriado e a comunicação efetiva com o paciente são aspectos centrais da competência médica avaliada.`,
-      fontes: [
-        "Ministério da Saúde. Protocolos Clínicos e Diretrizes Terapêuticas. 2024.",
-        "Conselho Federal de Medicina (CFM). Diretrizes e Pareceres. 2023.",
-        "UpToDate. Clinical Decision Support Resource. Acessado em 2024."
-      ]
-    }
-  };
-  
-  // Seleciona o template baseado na especialidade
-  let selectedTemplate = feedbackTemplates['default'];
-  
-  // Verifica se existe um template específico para a especialidade
-  for (const [key, template] of Object.entries(feedbackTemplates)) {
-    if (key !== 'default' && especialidade.includes(key)) {
-      selectedTemplate = template;
-      break;
-    }
-  }
-  
-  return {
-    resumoTecnico: selectedTemplate.resumoTecnico,
-    fontes: selectedTemplate.fontes
-  };
 }
 
 // Função para validar estrutura da estação
