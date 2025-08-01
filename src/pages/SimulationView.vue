@@ -309,6 +309,25 @@ async function fetchSimulationData(currentStationId) {
         console.log("FEEDBACK: Nenhum feedbackEstacao encontrado na estação ou PEP");
         console.log("FEEDBACK: Estrutura da estação:", Object.keys(stationData.value));
         console.log("FEEDBACK: Estrutura do PEP:", Object.keys(checklistData.value));
+        console.log("FEEDBACK: stationData.feedbackEstacao:", stationData.value.feedbackEstacao);
+        console.log("FEEDBACK: checklistData.feedbackEstacao:", checklistData.value.feedbackEstacao);
+        
+        // Procura por feedbackEstacao em toda a estrutura da estação
+        console.log("FEEDBACK: Procurando feedbackEstacao na estrutura completa...");
+        const searchForFeedback = (obj, path = '') => {
+          if (obj && typeof obj === 'object') {
+            for (const [key, value] of Object.entries(obj)) {
+              const currentPath = path ? `${path}.${key}` : key;
+              if (key === 'feedbackEstacao') {
+                console.log(`FEEDBACK: Encontrado feedbackEstacao em: ${currentPath}`, value);
+              }
+              if (typeof value === 'object' && value !== null) {
+                searchForFeedback(value, currentPath);
+              }
+            }
+          }
+        };
+        searchForFeedback(stationData.value);
       }
       
       if (!checklistData.value.itensAvaliacao || !Array.isArray(checklistData.value.itensAvaliacao) || checklistData.value.itensAvaliacao.length === 0) {
