@@ -5,7 +5,15 @@
         <VCardText>
           <p class="text-body-1 mb-4">Analise seu desempenho em diversas áreas e identifique pontos de melhoria.</p>
 
-          <VRow>
+          <!-- Loading State -->
+          <div v-if="loading" class="d-flex justify-center align-center pa-8">
+            <VProgressCircular indeterminate color="primary" size="64" />
+            <span class="ml-4 text-h6">Carregando estatísticas...</span>
+          </div>
+
+          <!-- Content -->
+          <div v-else>
+            <VRow>
             <VCol cols="12" md="6">
               <VCard class="mb-4">
                 <VCardTitle class="d-flex align-center gap-2">
@@ -53,6 +61,7 @@
             :series="performanceByAreaSeries"
           />
           <p class="text-caption text-medium-emphasis text-center mt-4">Desempenho detalhado em cada área de conhecimento.</p>
+          </div>
         </VCardText>
       </VCard>
     </VCol>
@@ -60,22 +69,104 @@
 </template>
 
 <script setup>
-import { computed, ref } from 'vue';
+import { currentUser } from '@/plugins/auth';
+import { db } from '@/plugins/firebase';
+import { doc, getDoc } from 'firebase/firestore';
+import { computed, onMounted, ref, watch } from 'vue';
 import VueApexCharts from 'vue3-apexcharts';
 import { useTheme } from 'vuetify';
 
 const vuetifyTheme = useTheme();
+const loading = ref(true);
 
-const averageScore = ref(78); // Exemplo de pontuação média
-const bestScore = ref(92); // Exemplo de melhor pontuação
+const averageScore = ref(0);
+const bestScore = ref(0);
+const performanceByArea = ref([]);
 
-const performanceByArea = ref([
-  { name: 'Clínica Médica', description: 'Desempenho em casos de clínica médica.', score: 85 },
-  { name: 'Cirurgia Geral', description: 'Desempenho em procedimentos cirúrgicos.', score: 70 },
-  { name: 'Pediatria', description: 'Desempenho em casos pediátricos.', score: 60 },
-  { name: 'Ginecologia e Obstetrícia', description: 'Desempenho em saúde da mulher.', score: 90 },
-  { name: 'Medicina Preventiva', description: 'Desempenho em saúde pública e prevenção.', score: 50 },
-]);
+// Mapeamento de especialidades
+const especialidadeNomes = {
+  'clinica-medica': 'Clínica Médica',
+  'cirurgia': 'Cirurgia Geral',
+  'pediatria': 'Pediatria',
+  'ginecologia-obstetricia': 'Ginecologia e Obstetrícia',
+  'medicina-preventiva': 'Medicina Preventiva',
+};
+
+// Carregar estatísticas reais do usuário
+const loadUserStatistics = async () => {
+  if (!currentUser.value?.uid) {
+    loading.value = false;
+    return;
+  }
+  
+  try {
+    console.log('📊 Carregando estatísticas do usuário:', currentUser.value.uid);
+    
+    const userDoc = await getDoc(doc(db, 'usuarios', currentUser.value.uid));
+    if (!userDoc.exists()) {
+      console.log('❌ Documento do usuário não encontrado');
+      loading.value = false;
+      return;
+    }
+    
+    const userData = userDoc.data();
+    console.log('📈 Dados do usuário carregados:', userData);
+    
+    // Média geral baseada no nível de habilidade
+    if (userData.nivelHabilidade !== undefined) {
+      averageScore.value = Math.round(userData.nivelHabilidade * 10); // Converter para escala 0-100
+    }
+    
+    // Melhor pontuação das estações concluídas
+    if (userData.estacoesConcluidas?.length) {
+      const notas = userData.estacoesConcluidas.map(estacao => estacao.nota || 0);
+      bestScore.value = Math.max(...notas);
+      console.log('🏆 Melhor pontuação encontrada:', bestScore.value);
+    }
+    
+    // Performance por área baseada em statistics
+    const areasData = [];
+    
+    if (userData.statistics) {
+      Object.entries(userData.statistics).forEach(([especialidade, dados]) => {
+        if (especialidade !== 'geral' && especialidadeNomes[especialidade]) {
+          const mediaNotas = dados.mediaNotas || 0;
+          const score = Math.round(mediaNotas * 10); // Converter para escala 0-100
+          
+          areasData.push({
+            name: especialidadeNomes[especialidade],
+            description: `Desempenho em ${especialidadeNomes[especialidade].toLowerCase()}`,
+            score: Math.min(score, 100) // Garantir que não passe de 100
+          });
+        }
+      });
+    }
+    
+    // Se não há statistics, criar áreas padrão com score 0
+    if (areasData.length === 0) {
+      Object.entries(especialidadeNomes).forEach(([slug, nome]) => {
+        areasData.push({
+          name: nome,
+          description: `Desempenho em ${nome.toLowerCase()}`,
+          score: 0
+        });
+      });
+    }
+    
+    performanceByArea.value = areasData;
+    
+    console.log('✅ Estatísticas processadas:', {
+      averageScore: averageScore.value,
+      bestScore: bestScore.value,
+      performanceByArea: performanceByArea.value
+    });
+    
+  } catch (error) {
+    console.error('❌ Erro ao carregar estatísticas:', error);
+  } finally {
+    loading.value = false;
+  }
+};
 
 // Opções para o gráfico de Pontuação Média
 const averageScoreChartOptions = computed(() => ({
@@ -203,4 +294,16 @@ const performanceByAreaSeries = computed(() => [
     data: performanceByArea.value.map(area => area.score),
   },
 ]);
+
+// Lifecycle hooks
+onMounted(() => {
+  loadUserStatistics();
+});
+
+// Watch para mudanças no usuário
+watch(currentUser, (newUser) => {
+  if (newUser?.uid) {
+    loadUserStatistics();
+  }
+}, { immediate: false });
 </script>

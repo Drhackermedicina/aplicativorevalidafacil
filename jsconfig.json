@@ -8,7 +8,13 @@
   "exclude": [
     "./dist",
     "./node_modules",
-    "./src/pages/ChatView.vue"
+    "./src/pages/ChatView.vue",
+    "./src/pages/AdminResetUsers_*.vue",
+    "./temp_*.vue",
+    "./**/*_Backup*.vue",
+    "./**/*_Original*.vue",
+    "./**/*_backup*.vue",
+    "./**/*_original*.vue"
   ],
   "compilerOptions": {
     "target": "esnext",

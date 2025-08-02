@@ -8,6 +8,10 @@
     <!-- Aqui incluímos o componente personalizador. -->
     <!-- Ele será exibido em todas as páginas da sua aplicação. -->
     <ThemeCustomizer />
+    
+    <!-- Componente de notificação flutuante de chat privado -->
+    <ChatNotificationFloat />
+    
     <!-- Snackbar global -->
     <v-snackbar v-model="snackbar.show" :color="snackbar.color" :timeout="snackbar.timeout || 4000">
       {{ snackbar.text }}
@@ -23,18 +27,25 @@ import { RouterView } from 'vue-router'
 // O caminho './components/ThemeCustomizer.vue' assume que App.vue está em 'src'
 // e ThemeCustomizer.vue está em 'src/components'.
 import { currentUser, waitForAuth } from '@/plugins/auth'
+import { db } from '@/plugins/firebase'
 import { usePrivateChatNotification } from '@/plugins/privateChatListener'
 import { useNotificationStore } from '@/stores/notificationStore'
 import { useUserStore } from '@/stores/userStore'
+import { doc, updateDoc } from 'firebase/firestore'
 import { computed, onMounted, onUnmounted, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import GlobalLoader from './components/GlobalLoader.vue'
 import ThemeCustomizer from './components/ThemeCustomizer.vue'
+import ChatNotificationFloat from './components/ChatNotificationFloat.vue'
 
 const userStore = useUserStore()
 const route = useRoute()
 const notificationStore = useNotificationStore()
 const snackbar = computed(() => notificationStore.snackbar)
+
+// Inicializar listener de notificações de chat privado
+const { startListener } = usePrivateChatNotification()
+
 let statusInterval = null
 
 async function updateUserStatus() {
@@ -43,46 +54,34 @@ async function updateUserStatus() {
   if (route.path.startsWith('/app/simulation') || route.path.includes('/simulate')) {
     status = 'treinando';
   }
-  // Envia para o backend
+  
+  // Atualiza apenas no Firestore
   try {
-    await fetch('https://backendraiway-production.up.railway.app/api/update-user-status', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        uid: currentUser.value.uid,
-        status
-      })
-    });
-    console.log('[DEBUG] Status enviado ao backend:', status);
+    const userRef = doc(db, 'usuarios', currentUser.value.uid);
+    await updateDoc(userRef, { status });
   } catch (err) {
-    console.error('[DEBUG] Erro ao enviar status ao backend:', err);
+    console.error('Erro ao atualizar status:', err);
   }
 }
 
 async function setStatusOffline() {
   if (currentUser.value?.uid) {
     try {
-      await fetch('https://backendraiway-production.up.railway.app/api/update-user-status', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          uid: currentUser.value.uid,
-          status: 'offline'
-        })
-      });
-      console.log('[DEBUG] Status OFFLINE enviado ao backend:', currentUser.value.uid);
+      // Atualiza apenas no Firestore
+      const userRef = doc(db, 'usuarios', currentUser.value.uid);
+      await updateDoc(userRef, { status: 'offline' });
     } catch (err) {
-      console.error('[DEBUG] Erro ao enviar status OFFLINE ao backend:', err);
+      console.error('Erro ao enviar status OFFLINE:', err);
     }
   }
 }
-
-usePrivateChatNotification()
 
 onMounted(async () => {
   await waitForAuth()
   if (currentUser.value) {
     userStore.setUser(currentUser.value)
+    // Iniciar listener de chat após autenticação
+    startListener()
   }
   updateUserStatus()
   statusInterval = setInterval(() => {

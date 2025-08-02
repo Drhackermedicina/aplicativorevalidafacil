@@ -1,0 +1,19 @@
+{
+    "name": "reset-user-stats-scripts",
+    "version": "1.0.0",
+    "description": "Scripts para reset de estatísticas dos usuários",
+    "main": "resetUserStats.js",
+    "scripts": {
+        "reset:complete": "node resetUserStats.js --confirm",
+        "reset:selective": "node resetUserStats.js --selective",
+        "reset:status": "node resetUserStats.js --selective --status",
+        "reset:estacoes": "node resetUserStats.js --selective --estacoes",
+        "reset:notas": "node resetUserStats.js --selective --notas",
+        "reset:help": "node resetUserStats.js"
+    },
+    "dependencies": {
+        "firebase-admin": "^12.0.0"
+    },
+    "author": "RevalidaFácil",
+    "license": "ISC"
+}

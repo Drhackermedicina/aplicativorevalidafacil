@@ -83,6 +83,15 @@ export const routes = [
         component: () => import('@/pages/AdminView.vue'),
       },
       {
+        path: 'admin-reset-users',
+        name: 'admin-reset-users',
+        component: () => import('@/pages/AdminResetUsers.vue'),
+        meta: {
+          requiresAuth: true,
+          requiresAdmin: true, // Adicionar verificação de admin se implementada
+        },
+      },
+      {
         path: 'chat-group',
         name: 'ChatGroupView',
         component: () => import('@/pages/ChatGroupView.vue'),

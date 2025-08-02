@@ -50,6 +50,19 @@
           <v-card-title class="d-flex align-center gap-2">
             <v-icon icon="ri-wechat-line" color="primary" size="28" />
             <span class="text-h5 font-weight-bold">Chat em Grupo</span>
+            <!-- Botão de teste para limpeza (apenas para admins) -->
+            <v-spacer />
+            <v-btn 
+              v-if="currentUser?.uid === 'KiSITAxXMAY5uU3bOPW5JMQPent2'"
+              icon
+              variant="text"
+              color="warning"
+              size="small"
+              @click="cleanOldMessages"
+              title="Testar limpeza de mensagens antigas"
+            >
+              <v-icon icon="ri-delete-bin-line" />
+            </v-btn>
           </v-card-title>
           <v-divider />
           <v-card-text class="chat-messages flex-grow-1 pa-4">
@@ -103,7 +116,7 @@
 <script setup>
 import { currentUser } from '@/plugins/auth';
 import { db } from '@/plugins/firebase';
-import { addDoc, collection, doc, onSnapshot, orderBy, query, updateDoc } from 'firebase/firestore';
+import { addDoc, collection, deleteDoc, getDocs, onSnapshot, orderBy, query, where } from 'firebase/firestore';
 import { nextTick, onMounted, onUnmounted, ref } from 'vue';
 import { useRouter } from 'vue-router';
 
@@ -134,8 +147,69 @@ function openPrivateChat(user) {
   router.push({ name: 'ChatPrivateView', params: { uid: user.uid } });
 }
 
+// Função para limpar mensagens antigas (mais de 24 horas)
+const cleanOldMessages = async () => {
+  try {
+    // Calcular 24 horas atrás
+    const now = new Date();
+    const twentyFourHoursAgo = new Date(now.getTime() - (24 * 60 * 60 * 1000));
+    
+    // Buscar mensagens antigas
+    const messagesRef = collection(db, 'chatMessages');
+    const oldMessagesQuery = query(
+      messagesRef, 
+      where('timestamp', '<', twentyFourHoursAgo)
+    );
+    
+    const querySnapshot = await getDocs(oldMessagesQuery);
+    
+    if (querySnapshot.empty) {
+      return;
+    }
+    
+    // Remover mensagens em lote
+    const deletePromises = [];
+    querySnapshot.forEach((doc) => {
+      deletePromises.push(deleteDoc(doc.ref));
+    });
+    
+    await Promise.all(deletePromises);
+    
+  } catch (error) {
+    // Silenciosamente falha sem mostrar erro ao usuário
+  }
+};
+
+// Configurar limpeza automática a cada 24 horas
+let cleanupInterval = null;
+
+const startAutoCleanup = () => {
+  // Limpar interval anterior se existir
+  if (cleanupInterval) {
+    clearInterval(cleanupInterval);
+  }
+  
+  // Executar limpeza imediatamente
+  cleanOldMessages();
+  
+  // Configurar para executar a cada 24 horas (86400000 ms)
+  cleanupInterval = setInterval(() => {
+    cleanOldMessages();
+  }, 24 * 60 * 60 * 1000);
+};
+
+const stopAutoCleanup = () => {
+  if (cleanupInterval) {
+    clearInterval(cleanupInterval);
+    cleanupInterval = null;
+  }
+};
+
 // Listener de usuários online
 onMounted(() => {
+  // Iniciar limpeza automática de mensagens antigas
+  startAutoCleanup();
+  
   const usersCollectionRef = collection(db, 'usuarios');
   const q = query(usersCollectionRef);
   unsubscribeUsers = onSnapshot(q, (snapshot) => {
@@ -171,20 +245,16 @@ onMounted(() => {
     });
   });
 
-  // Atualiza status para 'disponivel' ao entrar
-  if (currentUser.value?.uid) {
-    const userRef = doc(db, 'usuarios', currentUser.value.uid);
-    updateDoc(userRef, { status: 'disponivel' });
-  }
+  // Removido: Status é gerenciado globalmente pelo App.vue
 });
 
 onUnmounted(() => {
+  // Parar limpeza automática
+  stopAutoCleanup();
+  
   if (unsubscribeUsers) unsubscribeUsers();
   if (unsubscribeMessages) unsubscribeMessages();
-  if (currentUser.value?.uid) {
-    const userRef = doc(db, 'usuarios', currentUser.value.uid);
-    updateDoc(userRef, { status: 'offline' });
-  }
+  // Removido: Status é gerenciado globalmente pelo App.vue
 });
 
 const sendMessage = async () => {

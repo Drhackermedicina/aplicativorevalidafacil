@@ -60,7 +60,7 @@
 <script setup>
 import { currentUser } from '@/plugins/auth';
 import { db } from '@/plugins/firebase';
-import { addDoc, collection, onSnapshot, orderBy, query, serverTimestamp } from 'firebase/firestore';
+import { addDoc, collection, doc, getDoc, onSnapshot, orderBy, query, serverTimestamp } from 'firebase/firestore';
 import { nextTick, onMounted, onUnmounted, ref } from 'vue';
 import { useRoute } from 'vue-router';
 
@@ -72,12 +72,23 @@ const newMessage = ref('');
 const messagesEnd = ref(null);
 let unsubscribe = null;
 
-// Busca nome do usuário alvo (opcional, pode ser melhorado)
+// Busca nome do usuário alvo (corrigido para API v9)
 async function fetchUserName() {
   try {
-    const res = await db.collection('usuarios').doc(otherUserId).get();
-    if (res.exists) userName.value = res.data().nome || res.data().displayName || 'Usuário';
-  } catch {}
+    const userRef = doc(db, 'usuarios', otherUserId);
+    const userSnap = await getDoc(userRef);
+    if (userSnap.exists()) {
+      const userData = userSnap.data();
+      userName.value = (userData.nome && userData.sobrenome) 
+        ? `${userData.nome} ${userData.sobrenome}` 
+        : userData.displayName || 'Usuário';
+    } else {
+      userName.value = 'Usuário não encontrado';
+    }
+  } catch (error) {
+    // Silencioso - removido log para reduzir poluição do console
+    userName.value = 'Erro ao carregar usuário';
+  }
 }
 
 onMounted(() => {

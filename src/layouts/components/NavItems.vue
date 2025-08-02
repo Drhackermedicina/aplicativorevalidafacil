@@ -1,9 +1,28 @@
 <script setup>
 import trophy from '@/assets/images/misc/trophy.png';
+import { useAdminAuth } from '@/composables/useAdminAuth';
+import { currentUser } from '@/plugins/auth';
 import JoinSimulationByCode from '@/views/dashboard/JoinSimulationByCode.vue';
 import VerticalNavGroup from '@layouts/components/VerticalNavGroup.vue';
 import VerticalNavLink from '@layouts/components/VerticalNavLink.vue';
 import { computed, ref } from 'vue';
+
+// Verificação de admin
+const { isAuthorizedAdmin } = useAdminAuth();
+
+// Para debug - sempre mostrar o menu admin temporariamente
+const showAdminMenu = computed(() => {
+  console.log('🔍 NavItems - Admin verification:', {
+    isAuthorizedAdmin: isAuthorizedAdmin.value,
+    currentUser: currentUser.value?.uid
+  })
+  
+  // TEMPORÁRIO: sempre retornar true para testar
+  return true
+  
+  // Versão original (comentada):
+  // return isAuthorizedAdmin.value
+})
 
 const homeLink = {
   title: 'Home',
@@ -142,6 +161,41 @@ const rankingMeta = 98;
         to: undefined,
         href: undefined,
         onClick: openCodeDialog,
+      }"
+    />
+  </VerticalNavGroup>
+
+  <!-- Seção Administração - Visível apenas para admins -->
+  <VerticalNavGroup
+    v-if="showAdminMenu"
+    :item="{
+      title: 'Administração',
+      icon: 'ri-shield-keyhole-fill',
+      iconColor: '#d32f2f',
+    }"
+  >
+    <VerticalNavLink
+      :item="{
+        title: 'Painel Admin',
+        icon: 'ri-dashboard-fill',
+        iconColor: '#1976d2',
+        to: '/app/admin',
+      }"
+    />
+    <VerticalNavLink
+      :item="{
+        title: 'Upload Estações',
+        icon: 'ri-upload-2-fill',
+        iconColor: '#388e3c',
+        to: '/app/admin-upload',
+      }"
+    />
+    <VerticalNavLink
+      :item="{
+        title: 'Reset Usuários',
+        icon: 'ri-refresh-fill',
+        iconColor: '#f57c00',
+        to: '/app/admin-reset-users',
       }"
     />
   </VerticalNavGroup>

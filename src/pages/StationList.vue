@@ -55,20 +55,14 @@ const isAdmin = computed(() => {
     currentUser.value.uid === 'UD7S8aiyR8TJXHyxdw29BHNfjEf1' || // Novo admin adicionado
     currentUser.value.uid === 'lNwhdYgMwLhS1ZyufRzw9xLD10y1' // Novo admin adicionado
   );
-  console.log(`[DEBUG Admin] CurrentUser: ${currentUser.value?.uid} | isAdmin: ${adminStatus}`);
   return adminStatus;
 });
 
 const stations2024_2 = computed(() => {
   const filtered = stations.value.filter(station => {
     const idEstacao = station.idEstacao || '';
-    const titulo = station.tituloEstacao?.toUpperCase() || '';
-    if (titulo.includes("INEP") && titulo.includes("2024.2")) {
-      console.log(`[DEBUG INEP 2024.2] Estação encontrada no título: ID=${station.id}, idEstacao=${idEstacao}, Titulo=${station.tituloEstacao}`);
-    }
     return idEstacao.startsWith("REVALIDA") && idEstacao.includes("2024");
   });
-  console.log(`[DEBUG INEP 2024.2] Total de estações filtradas por idEstacao: ${filtered.length}`);
   
   // Ordenar alfabeticamente por título limpo
   return filtered
@@ -83,25 +77,6 @@ const stationsRevalidaFacil = computed(() => {
     const origem = station.origem?.toUpperCase() || '';
     return origem === 'REVALIDA_FACIL';
   });
-
-  console.log(`[DEBUG RevalidaFacil] Total de estações encontradas: ${filteredStations.length}`);
-  
-  // Debug: contagem por especialidade
-  if (filteredStations.length > 0) {
-    const especialidadeCount = {};
-    const areaCount = {};
-    
-    filteredStations.forEach(station => {
-      const especialidade = station.especialidade || 'SEM_ESPECIALIDADE';
-      const area = getStationArea(station);
-      
-      especialidadeCount[especialidade] = (especialidadeCount[especialidade] || 0) + 1;
-      areaCount[area.key] = (areaCount[area.key] || 0) + 1;
-    });
-    
-    console.log('[DEBUG RevalidaFacil] Contagem por especialidade:', especialidadeCount);
-    console.log('[DEBUG RevalidaFacil] Contagem por área:', areaCount);
-  }
   
   // Ordenar alfabeticamente por título limpo
   return filteredStations
@@ -128,38 +103,6 @@ const filteredStationsRevalidaFacilPreventiva = computed(() => {
 
 const filteredStationsRevalidaFacilPediatria = computed(() => {
   const pediatriaStations = stationsRevalidaFacil.value.filter(station => getStationArea(station).key === 'pediatria');
-  console.log(`[DEBUG Pediatria] Total de estações de Pediatria REVALIDA FÁCIL: ${pediatriaStations.length}`);
-  
-  // Debug detalhado das estações pediátricas
-  if (pediatriaStations.length > 0) {
-    console.log('[DEBUG Pediatria] Estações encontradas:', pediatriaStations.map(s => ({
-      id: s.id,
-      titulo: s.tituloEstacao,
-      especialidade: s.especialidade,
-      origem: s.origem,
-      area: getStationArea(s)
-    })));
-  } else {
-    // Verificar se há estações que deveriam ser pediatria
-    const allRevalidaFacil = stationsRevalidaFacil.value;
-    console.log('[DEBUG Pediatria] Verificando todas as estações REVALIDA FÁCIL para palavras-chave pediátricas:');
-    allRevalidaFacil.forEach(station => {
-      const titulo = (station.tituloEstacao || '').toLowerCase();
-      const especialidade = (station.especialidade || '').toLowerCase();
-      const area = getStationArea(station);
-      
-      if (titulo.includes('pediatr') || titulo.includes('criança') || titulo.includes('infantil') || 
-          especialidade.includes('pediatr') || especialidade.includes('criança')) {
-        console.log('[DEBUG Pediatria] Estação que deveria ser pediátrica:', {
-          id: station.id,
-          titulo: station.tituloEstacao,
-          especialidade: station.especialidade,
-          area: area,
-          origem: station.origem
-        });
-      }
-    });
-  }
   
   return pediatriaStations
     .sort((a, b) => getCleanStationTitle(a.tituloEstacao).localeCompare(getCleanStationTitle(b.tituloEstacao), 'pt-BR', { numeric: true }));
@@ -175,9 +118,6 @@ const filteredStationsRevalidaFacilGO = computed(() => {
 function getCleanStationTitle(originalTitle) {
   if (!originalTitle) return 'ESTAÇÃO SEM TÍTULO';
   let cleanTitle = originalTitle;
-
-  // Log para debug
-  console.log(`[DEBUG CleanTitle] Original: "${originalTitle}"`);
 
   // Remover completamente prefixos INEP ou REVALIDA
   cleanTitle = cleanTitle.replace(/^INEP\s*2024\.2[\s\:\-]*/gi, '');
@@ -207,9 +147,6 @@ function getCleanStationTitle(originalTitle) {
   // Remove espaços extras
   cleanTitle = cleanTitle.trim();
   
-  // Log do resultado intermediário
-  console.log(`[DEBUG CleanTitle] Após limpeza: "${cleanTitle}"`);
-  
   // Se ficou vazio, retorna fallback mas sem os prefixos
   if (!cleanTitle || cleanTitle.length < 2) {
     // Aplicar todas as substituições ao título original para ter um fallback melhor
@@ -224,7 +161,6 @@ function getCleanStationTitle(originalTitle) {
       .replace(/[\s\-\:]{2,}/g, ' ')  // Substitui múltiplos espaços ou símbolos por um único espaço
       .trim();
     
-    console.log(`[DEBUG CleanTitle] Fallback usado: "${fallback}"`);
     return fallback || originalTitle;
   }
 
@@ -233,7 +169,6 @@ function getCleanStationTitle(originalTitle) {
     word.charAt(0).toUpperCase() + word.slice(1)
   ).join(' ');
 
-  console.log(`[DEBUG CleanTitle] Final: "${cleanTitle}"`);
   return cleanTitle;
 }
 
@@ -411,11 +346,6 @@ function getStationArea(station) {
     'geral': { name: 'GERAL', fullName: 'Medicina Geral', icon: '🏥' }
   };
 
-  // Log apenas para estações que não foram categorizadas
-  if (key === 'geral') {
-    console.log(`[DEBUG Area] ⚠️ Estação não categorizada: "${station.tituloEstacao}" | Especialidade: "${station.especialidade}"`);
-  }
-
   return { key, ...areas[key] };
 }
 
@@ -487,7 +417,6 @@ const filteredStations = computed(() => {
   if (selectedArea.value && selectedCategory.value) {
     filtered = filtered.filter(station => {
       const area = getStationArea(station);
-      console.log(`[DEBUG] Filtro área: estação ${station.tituloEstacao} | especialidade: ${station.especialidade} | area.key: ${area.key} | selectedArea: ${selectedArea.value}`);
       return area.key === selectedArea.value;
     });
   }
@@ -600,37 +529,18 @@ async function fetchStations() {
     });
     
     stations.value = stationsList;
-    console.log(`[DEBUG] Estações carregadas: ${stations.value.length}`);
     
     // Buscar pontuações do usuário após carregar estações
     if (currentUser.value) {
       await fetchUserScores();
     }
     
-    // Debug específico para verificar estações pediátricas
-    console.log('[DEBUG] Verificando todas as estações para palavras-chave pediátricas:');
-    stations.value.forEach(station => {
-      const titulo = (station.tituloEstacao || '').toLowerCase();
-      const especialidade = (station.especialidade || '').toLowerCase();
-      
-      if (titulo.includes('pediatr') || titulo.includes('criança') || titulo.includes('infantil') || 
-          especialidade.includes('pediatr') || especialidade.includes('criança') || especialidade.includes('ped')) {
-        console.log('[DEBUG Pediatria] Estação encontrada:', {
-          id: station.id,
-          titulo: station.tituloEstacao,
-          especialidade: station.especialidade,
-          origem: station.origem,
-          area: getStationArea(station)
-        });
-      }
-    });
-    
     if (stations.value.length === 0) {
       errorMessage.value = "Nenhuma estação encontrada no Firestore na coleção 'estacoes_clinicas'.";
     }
 
   } catch (error) {
-    console.error("[DEBUG] ERRO ao buscar lista de estações:", error);
+    console.error("ERRO ao buscar lista de estações:", error);
     errorMessage.value = `Falha ao buscar estações: ${error.message}`;
     if (error.code === 'permission-denied') {
       errorMessage.value += " (Erro de permissão! Verifique as Regras de Segurança do Firestore)";
@@ -645,8 +555,6 @@ async function fetchUserScores() {
   if (!currentUser.value) return;
   
   try {
-    console.log(`[DEBUG] Buscando pontuações do usuário: ${currentUser.value.uid}`);
-    
     // Buscar dados do usuário na coleção usuarios onde estão salvos os historicos
     const userDocRef = doc(db, 'usuarios', currentUser.value.uid);
     const userDocSnap = await getDoc(userDocRef);
@@ -656,8 +564,6 @@ async function fetchUserScores() {
     if (userDocSnap.exists()) {
       const userData = userDocSnap.data();
       const estacoesConcluidas = userData.estacoesConcluidas || [];
-      
-      console.log(`[DEBUG] Estações concluídas encontradas:`, estacoesConcluidas);
       
       // Processar cada estação concluída
       estacoesConcluidas.forEach((estacao) => {
@@ -675,15 +581,12 @@ async function fetchUserScores() {
           }
         }
       });
-    } else {
-      console.log(`[DEBUG] Documento do usuário não encontrado: ${currentUser.value.uid}`);
     }
     
     userScores.value = scores;
-    console.log(`[DEBUG] Pontuações do usuário carregadas:`, userScores.value);
     
   } catch (error) {
-    console.error("[DEBUG] ERRO ao buscar pontuações do usuário:", error);
+    console.error("ERRO ao buscar pontuações do usuário:", error);
   }
 }
 
@@ -703,10 +606,9 @@ function getUserStationScore(stationId) {
 }
 
 async function startSimulationAsActor(stationId) {
-  console.log(`[DEBUG] startSimulationAsActor chamada com stationId:`, stationId);
   
   if (!stationId) {
-    console.error('[DEBUG] stationId ausente:', stationId);
+    console.error('stationId ausente:', stationId);
     errorApi.value = "ID da Estação ausente";
     alert("Erro: ID da estação não encontrado.");
     return;
@@ -716,9 +618,6 @@ async function startSimulationAsActor(stationId) {
     creatingSessionForStationId.value = stationId;
     isLoadingSession.value = true;
     errorApi.value = '';
-    
-    console.log(`[DEBUG] Fazendo requisição para: ${backendUrl}/api/create-session`);
-    console.log(`[DEBUG] Payload:`, { stationId });
     
     // O backend espera apenas stationId, não checklistId
     const response = await fetch(`${backendUrl}/api/create-session`, {
@@ -731,20 +630,15 @@ async function startSimulationAsActor(stationId) {
       }),
     });
 
-    console.log(`[DEBUG] Resposta recebida. Status: ${response.status}`);
-
     if (!response.ok) {
       const errorText = await response.text();
-      console.error(`[DEBUG] Erro HTTP ${response.status}:`, errorText);
+      console.error(`Erro HTTP ${response.status}:`, errorText);
       throw new Error(`Erro na resposta: ${response.status} - ${errorText}`);
     }
     
     const result = await response.json();
-    console.log(`[DEBUG] Resultado do backend:`, result);
-    
     if (result.sessionId) {
       const navigationUrl = `/app/simulation/${stationId}?sessionId=${result.sessionId}&role=actor`;
-      console.log(`[DEBUG] Navegando para: ${navigationUrl}`);
       
       // Navegar para a simulação com os parâmetros corretos
       router.push({
@@ -754,21 +648,18 @@ async function startSimulationAsActor(stationId) {
           role: 'actor'
         }
       });
-      
-      console.log(`[DEBUG] router.push executado com sucesso`);
     } else {
-      console.error('[DEBUG] sessionId não encontrado na resposta:', result);
+      console.error('sessionId não encontrado na resposta:', result);
       throw new Error('Sessão criada mas sessionId não retornado');
     }
 
   } catch (error) {
-    console.error('[DEBUG] Erro completo ao criar sessão:', error);
+    console.error('Erro completo ao criar sessão:', error);
     errorApi.value = `Erro: ${error.message}`;
     alert(`Erro ao iniciar simulação: ${error.message}`);
   } finally {
     isLoadingSession.value = false;
     creatingSessionForStationId.value = null;
-    console.log('[DEBUG] startSimulationAsActor finalizada');
   }
 }
 
@@ -866,11 +757,6 @@ function applyStyles() {
     Object.assign(selectedElement.value.style, debugStyles);
   }
 }
-
-// Exemplo de log para depuração
-watch(selectedCategory, (newValue) => {
-  console.log('[DEBUG] Categoria selecionada mudou para:', newValue);
-});
 
 // Corrigindo possíveis erros de declaração ou instrução esperada
 // Certifique-se de que todas as declarações estão completas e válidas

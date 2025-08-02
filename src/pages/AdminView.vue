@@ -4,8 +4,11 @@
       <h1>Administração</h1>
       <p>Painel de administração em desenvolvimento...</p>
       <div class="admin-actions">
-        <button @click="$router.push('/admin/upload')" class="btn btn-primary">
+        <button @click="$router.push('/app/admin-upload')" class="btn btn-primary">
           Fazer Upload de Arquivo
+        </button>
+        <button @click="$router.push('/app/admin-reset-users')" class="btn btn-warning">
+          Reset de Usuários
         </button>
       </div>
     </div>
@@ -54,6 +57,15 @@ export default {
 
 .btn-primary:hover {
   background-color: #0056b3;
+}
+
+.btn-warning {
+  background-color: #f57c00;
+  color: white;
+}
+
+.btn-warning:hover {
+  background-color: #e65100;
 }
 
 .dark-theme .admin-view {
