@@ -4,7 +4,7 @@ import { currentUser } from '@/plugins/auth.js';
 import { db } from '@/plugins/firebase.js';
 import { registrarConclusaoEstacao } from '@/services/stationEvaluationService.js';
 import { backendUrl } from '@/utils/backendUrl.js';
-import { doc, getDoc } from 'firebase/firestore';
+import { addDoc, collection, doc, getDoc, serverTimestamp } from 'firebase/firestore';
 import { io } from 'socket.io-client';
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
@@ -195,6 +195,13 @@ const isCandidate = computed(() => userRole.value === 'candidate');
 const inviteLinkToShow = ref('');
 const copySuccess = ref(false);
 
+// Candidato selecionado para simulação
+const selectedCandidateForSimulation = ref(null);
+
+// Chat integration refs
+const sendingChat = ref(false);
+const chatSentSuccess = ref(false);
+
 const isAdmin = computed(() => {
   return currentUser.value && (
     currentUser.value.uid === 'KiSITAxXMAY5uU3bOPW5JMQPent2' ||
@@ -210,6 +217,8 @@ const partnerReadyState = ref(false);
 const simulationStarted = ref(false);
 const simulationEnded = ref(false);
 const simulationWasManuallyEndedEarly = ref(false);
+// Ref para controlar delay do botão "Estou pronto" do candidato
+const candidateReadyButtonEnabled = ref(false);
 // Refs para o timer e seleção de duração
 const simulationTimeSeconds = ref(10 * 60);
 const timerDisplay = ref(formatTime(simulationTimeSeconds.value));
@@ -357,6 +366,59 @@ async function fetchSimulationData(currentStationId) {
   }
 }
 
+// --- Função para limpar candidato selecionado ---
+function clearSelectedCandidate() {
+  try {
+    sessionStorage.removeItem('selectedCandidate');
+    console.log('🧹 Candidato selecionado limpo - simulação finalizada');
+  } catch (error) {
+    console.warn('Erro ao limpar candidato selecionado:', error);
+  }
+}
+
+// --- Função para enviar link via chat privado ---
+async function sendLinkViaPrivateChat() {
+  if (!selectedCandidateForSimulation.value || !inviteLinkToShow.value) {
+    console.error('Candidato ou link não disponível');
+    return;
+  }
+
+  sendingChat.value = true;
+  chatSentSuccess.value = false;
+
+  try {
+    const candidateUid = selectedCandidateForSimulation.value.uid;
+    const linkToSend = inviteLinkToShow.value;
+    
+    if (!candidateUid || !linkToSend || !currentUser.value?.uid) {
+      throw new Error('Dados insuficientes para enviar mensagem');
+    }
+    
+    const chatId = [currentUser.value.uid, candidateUid].sort().join('_');
+    const messageData = {
+      senderId: currentUser.value.uid,
+      senderName: currentUser.value.displayName || 'Avaliador',
+      senderPhotoURL: currentUser.value.photoURL || '',
+      text: `🎯 **Link da Simulação**\n\n${selectedCandidateForSimulation.value.name}, você foi convidado(a) para participar da simulação da estação **${stationData.value?.tituloEstacao || 'Estação'}**.\n\nClique no link abaixo para acessar:\n${linkToSend}`,
+      timestamp: serverTimestamp(),
+    };
+    
+    await addDoc(collection(db, `chatPrivado_${chatId}`), messageData);
+    console.log('Link enviado via chat privado para:', candidateUid);
+    
+    chatSentSuccess.value = true;
+    setTimeout(() => {
+      chatSentSuccess.value = false;
+    }, 3000);
+    
+  } catch (error) {
+    console.error('Erro ao enviar link via chat privado:', error);
+    // Aqui você pode adicionar uma notificação de erro para o usuário
+  } finally {
+    sendingChat.value = false;
+  }
+}
+
 // --- Lógica do WebSocket ---
 function connectWebSocket() {
   if (!sessionId.value || !userRole.value || !stationId.value || !currentUser.value?.uid) { console.error("SOCKET: Dados essenciais faltando para conexão.");
@@ -375,9 +437,26 @@ function connectWebSocket() {
       displayName: currentUser.value?.displayName
     }
   });
-  socket.value.on('connect', () => { connectionStatus.value = 'Conectado'; console.log('SOCKET: Conectado! ID do Socket:', socket.value.id); });
+  socket.value.on('connect', () => { 
+    connectionStatus.value = 'Conectado'; 
+    console.log('SOCKET: Conectado! ID do Socket:', socket.value.id); 
+    
+    // Delay de 1 segundo para habilitar o botão "Estou pronto" do candidato
+    if (userRole.value === 'candidate') {
+      candidateReadyButtonEnabled.value = false;
+      setTimeout(() => {
+        candidateReadyButtonEnabled.value = true;
+      }, 1000);
+    }
+  });
   socket.value.on('disconnect', (reason) => {
     connectionStatus.value = 'Desconectado';
+    
+    // Desabilitar o botão do candidato na desconexão
+    if (userRole.value === 'candidate') {
+      candidateReadyButtonEnabled.value = false;
+    }
+    
     const wasPartnerConnected = !!partner.value;
     partner.value = null;
 
@@ -470,6 +549,9 @@ function connectWebSocket() {
     }
     simulationWasManuallyEndedEarly.value = false; // Garante que é false se terminou por tempo
     
+    // Limpar candidato selecionado quando simulação termina
+    clearSelectedCandidate();
+    
     // Notificação para o candidato
     if (userRole.value === 'candidate') {
       showNotification('Tempo finalizado! Aguardando avaliação do examinador...', 'info');
@@ -484,6 +566,9 @@ function connectWebSocket() {
         playSoundEffect(); // Som do final da estação
         simulationEnded.value = true; // Marca como encerrada ANTES para evitar som duplicado
     }
+
+    // Limpar candidato selecionado quando simulação para
+    clearSelectedCandidate();
 
     // A lógica para `simulationWasManuallyEndedEarly` permanece aqui,
     // pois ela é usada para desabilitar a 'Submissão de Avaliação'.
@@ -551,6 +636,22 @@ function connectWebSocket() {
   });
 }
 
+// --- Função para carregar candidato selecionado ---
+function loadSelectedCandidate() {
+  try {
+    const candidateData = JSON.parse(sessionStorage.getItem('selectedCandidate') || '{}');
+    if (candidateData.uid) {
+      selectedCandidateForSimulation.value = candidateData;
+      console.log('Candidato carregado para simulação:', candidateData.name);
+    } else {
+      selectedCandidateForSimulation.value = null;
+    }
+  } catch (error) {
+    console.warn('Erro ao carregar candidato selecionado:', error);
+    selectedCandidateForSimulation.value = null;
+  }
+}
+
 // --- Função Setup Session ---
 function setupSession() {
   console.log("SETUP_SESSION: Iniciando...");
@@ -580,6 +681,11 @@ function setupSession() {
   candidateReceivedScores.value = {};
   candidateReceivedTotalScore.value = 0;
   actorReleasedImpressoIds.value = {};
+
+  // Carregar candidato selecionado se for ator/avaliador
+  if (userRole.value === 'actor' || userRole.value === 'evaluator') {
+    loadSelectedCandidate();
+  }
 
   const durationFromQuery = route.query.duration ? parseInt(route.query.duration) : null;
   const validOptions = [5, 6, 7, 8, 9, 10];
@@ -633,7 +739,21 @@ watch(bothParticipantsReady, (newValue) => {
 // --- Hooks Ciclo de Vida ---
 onMounted(() => { console.log("SimulationView Montado. Configurando sessão inicial..."); setupSession(); });
 watch(() => route.fullPath, (newPath, oldPath) => { if (newPath !== oldPath && route.name === 'SimulationView') { console.log("MUDANÇA DE ROTA (SimulationView fullPath):", newPath, "Reconfigurando sessão..."); setupSession(); }});
-onUnmounted(() => { if (socket.value) { console.log("Componente SimulationView DESMONTADO. Desconectando socket."); socket.value.disconnect(); socket.value = null; } });
+onUnmounted(() => { 
+  if (socket.value) { 
+    console.log("Componente SimulationView DESMONTADO. Desconectando socket."); 
+    socket.value.disconnect(); 
+    socket.value = null; 
+  }
+  
+  // Limpar candidato selecionado ao sair da simulação
+  try {
+    sessionStorage.removeItem('selectedCandidate');
+    console.log('Candidato selecionado limpo ao sair da simulação');
+  } catch (error) {
+    console.warn('Erro ao limpar candidato selecionado:', error);
+  }
+});
 function toggleActorImpressoVisibility(impressoId) {
   actorVisibleImpressoContent.value[impressoId] = !actorVisibleImpressoContent.value[impressoId];
   actorVisibleImpressoContent.value = {...actorVisibleImpressoContent.value};
@@ -695,6 +815,15 @@ function generateInviteLinkWithDuration() {
           role: partnerRoleToInvite,
           duration: selectedDurationMinutes.value
         };
+        
+        // Adicionar dados do candidato selecionado se disponível
+        const selectedCandidate = JSON.parse(sessionStorage.getItem('selectedCandidate') || '{}');
+        if (selectedCandidate.uid) {
+          inviteQuery.candidateUid = selectedCandidate.uid;
+          inviteQuery.candidateName = selectedCandidate.name;
+          console.log('Link personalizado criado para candidato:', selectedCandidate.name);
+        }
+        
         if (communicationMethod.value === 'meet') {
           inviteQuery.meet = meetLink.value.trim();
         }
@@ -845,19 +974,67 @@ async function submitEvaluation() {
     });
   }
 
-  // --- Integração Firestore: registrar avaliação ---
-  if (currentUser.value?.uid && stationId.value && typeof totalScore.value === 'number') {
+  // --- Integração Firestore: registrar avaliação NO CANDIDATO ---
+  // Estratégia: tentar todas as fontes possíveis para garantir o UID do candidato
+  let candidateUid = null;
+  // 1. partner (websocket)
+  if (partner.value?.userId) candidateUid = partner.value.userId;
+  // 2. sessionStorage
+  if (!candidateUid) {
     try {
-      await registrarConclusaoEstacao({
-        uid: currentUser.value.uid,
+      const selectedCandidate = JSON.parse(sessionStorage.getItem('selectedCandidate') || '{}');
+      if (selectedCandidate && selectedCandidate.uid) {
+        candidateUid = selectedCandidate.uid;
+        console.log('[AVALIAÇÃO] UID do candidato via sessionStorage:', candidateUid, selectedCandidate);
+      }
+    } catch (err) {
+      console.warn('[AVALIAÇÃO] Erro ao ler candidato do sessionStorage:', err);
+    }
+  }
+  // 3. selectedCandidateForSimulation ref
+  if (!candidateUid && selectedCandidateForSimulation.value?.uid) {
+    candidateUid = selectedCandidateForSimulation.value.uid;
+    console.log('[AVALIAÇÃO] UID do candidato via ref:', candidateUid, selectedCandidateForSimulation.value);
+  }
+  // 4. route.query (caso venha por URL)
+  if (!candidateUid && route.query.candidateUid) {
+    candidateUid = route.query.candidateUid;
+    console.log('[AVALIAÇÃO] UID do candidato via route.query:', candidateUid);
+  }
+
+  // Validação final
+  if (!candidateUid) {
+    alert('Não foi possível identificar o candidato para registrar a avaliação. Por favor, selecione o candidato corretamente antes de iniciar a simulação.');
+    console.error('[AVALIAÇÃO] Falha crítica: UID do candidato não encontrado!');
+    return;
+  }
+
+  // Registro da avaliação
+  if (stationId.value && typeof totalScore.value === 'number') {
+    try {
+      const avaliacaoData = {
+        uid: candidateUid,
         idEstacao: stationId.value,
         nota: totalScore.value,
-        data: new Date()
-      });
-      console.log('Avaliação registrada no Firestore com sucesso!');
+        data: new Date(),
+        nomeEstacao: stationData.value?.tituloEstacao || 'Estação Clínica',
+        especialidade: stationData.value?.especialidade || 'Geral',
+        origem: stationData.value?.origem || 'SIMULACAO'
+      };
+      console.log('[AVALIAÇÃO] Registrando avaliação:', avaliacaoData);
+      await registrarConclusaoEstacao(avaliacaoData);
+      console.log('[AVALIAÇÃO] Sucesso! Avaliação registrada no histórico do candidato:', candidateUid);
     } catch (err) {
-      console.error('Erro ao registrar avaliação no Firestore:', err);
+      alert('Erro ao registrar avaliação do candidato. Veja o console para detalhes.');
+      console.error('[AVALIAÇÃO] Erro ao registrar avaliação no Firestore:', err);
     }
+  } else {
+    alert('Dados insuficientes para registrar avaliação.');
+    console.warn('[AVALIAÇÃO] Dados insuficientes para registrar avaliação:', {
+      candidateUid,
+      stationId: stationId.value,
+      totalScore: totalScore.value
+    });
   }
 }
 
@@ -1651,23 +1828,60 @@ function processInfrastructureItems(items) {
       <!-- CABEÇALHO E CONTROLES PRINCIPAIS -->
       <VCard class="mb-6">
         <VCardText>
+          <!-- Selected Candidate Info -->
+          <div v-if="selectedCandidateForSimulation" class="mb-4">
+            <VCard 
+              color="primary" 
+              variant="tonal"
+            >
+              <VCardText>
+                <div class="d-flex align-center">
+                  <VAvatar size="40" class="me-3">
+                    <VImg 
+                      :src="selectedCandidateForSimulation.photoURL || '/images/avatars/avatar-1.png'"
+                      :alt="selectedCandidateForSimulation.name"
+                    />
+                  </VAvatar>
+                  <div class="flex-grow-1">
+                    <div class="text-subtitle-1 font-weight-medium">
+                      Candidato Selecionado: {{ selectedCandidateForSimulation.name }}
+                    </div>
+                    <div class="text-caption text-medium-emphasis">
+                      {{ selectedCandidateForSimulation.email }}
+                    </div>
+                  </div>
+                  <VBtn
+                    size="small"
+                    variant="text"
+                    color="error"
+                    @click="clearSelectedCandidate"
+                    prepend-icon="mdi-close"
+                  >
+                    Limpar Seleção
+                  </VBtn>
+                </div>
+              </VCardText>
+            </VCard>
+          </div>
+
           <div class="d-flex flex-wrap justify-space-between align-center gap-4">
-            <!-- Título e Papel -->
+            <!-- Título -->
             <div class="d-flex align-center gap-3">
                 <VBtn icon variant="text" @click="toggleCollapse">
                     <VIcon icon="ri-menu-line" />
                 </VBtn>
                 <div>
-                    <h2 class="text-h5">{{ isCandidate ? stationData.especialidade : stationData.tituloEstacao }}</h2>
-                    <p class="text-body-1 mb-0">
-                        Seu Papel: <VChip size="small" :color="isCandidate ? 'primary' : 'info'">{{ userRole }}</VChip>
-                    </p>
+                    <h2 class="text-h5">{{ 
+                      isCandidate 
+                        ? stationData.especialidade 
+                        : `${stationData.especialidade} - ${stationData.tituloEstacao}` 
+                    }}</h2>
                 </div>
             </div>
 
-            <!-- Timer e Controles (Visão Ator/Avaliador) -->
-            <div v-if="isActorOrEvaluator" class="d-flex align-center gap-3">
-              <div v-if="!simulationStarted && !simulationEnded" style="width: 150px;">
+            <!-- Timer -->
+            <div class="d-flex align-center gap-3">
+              <div v-if="isActorOrEvaluator && !simulationStarted && !simulationEnded" style="width: 150px;">
                 <VSelect
                   v-model="selectedDurationMinutes"
                   label="Duração"
@@ -1683,7 +1897,7 @@ function processInfrastructureItems(items) {
                 {{ timerDisplay }}
               </div>
               <VBtn
-                v-if="simulationStarted && !simulationEnded"
+                v-if="isActorOrEvaluator && simulationStarted && !simulationEnded"
                 color="error"
                 variant="tonal"
                 @click="manuallyEndSimulation"
@@ -1693,15 +1907,6 @@ function processInfrastructureItems(items) {
             </div>
           </div>
 
-          <!-- Status da Conexão -->
-          <div class="d-flex flex-wrap gap-x-4 gap-y-1 text-body-2 mt-4">
-            <span>Sessão: <strong>{{ sessionId.substring(0, 8) }}...</strong></span>
-            <span>Conexão: <strong :class="`text-${connectionStatus === 'Conectado' ? 'success' : 'error'}`">{{ connectionStatus }}</strong></span>
-            <span v-if="connectionStatus === 'Conectado'">Parceiro:
-              <strong v-if="partner">{{ partner.role }} <VChip size="x-small" :color="partnerReadyState ? 'success' : 'warning'">{{ partnerReadyState ? 'Pronto' : 'Aguardando' }}</VChip></strong>
-              <strong v-else>Aguardando...</strong>
-            </span>
-          </div>
            <VAlert v-if="errorMessage && stationData" type="warning" density="compact" class="mt-4">
               {{ errorMessage }}
             </VAlert>
@@ -1729,13 +1934,24 @@ function processInfrastructureItems(items) {
 
             <div v-if="inviteLinkToShow" class="mt-4 text-center">
                 <p class="font-weight-bold text-body-2 mb-2">Link de Convite Gerado!</p>
-                <VBtn
-                    prepend-icon="ri-clipboard-line"
-                    @click="copyInviteLink"
-                    :color="copySuccess ? 'success' : 'primary'"
-                >
-                    {{ copySuccess ? 'Copiado!' : 'Copiar Link para Candidato' }}
-                </VBtn>
+                <div class="d-flex gap-2 justify-center">
+                  <VBtn
+                      prepend-icon="ri-clipboard-line"
+                      @click="copyInviteLink"
+                      :color="copySuccess ? 'success' : 'primary'"
+                  >
+                      {{ copySuccess ? 'Copiado!' : 'Copiar Link' }}
+                  </VBtn>
+                  <VBtn
+                      v-if="selectedCandidateForSimulation"
+                      prepend-icon="ri-chat-3-line"
+                      @click="sendLinkViaPrivateChat"
+                      color="secondary"
+                      :loading="sendingChat"
+                  >
+                      {{ chatSentSuccess ? 'Enviado!' : 'Enviar via Chat' }}
+                  </VBtn>
+                </div>
             </div>
 
           <div v-if="inviteLinkToShow || isCandidate" class="text-center mt-4 pt-4 border-t">
@@ -1743,6 +1959,7 @@ function processInfrastructureItems(items) {
               v-if="!myReadyState"
               size="large"
               :color="myReadyState ? 'default' : 'success'"
+              :disabled="isCandidate && !candidateReadyButtonEnabled"
               @click="sendReady"
             >
               <VIcon :icon="myReadyState ? 'ri-checkbox-circle-line' : 'ri-checkbox-blank-circle-line'" class="me-2"/>
@@ -2132,7 +2349,7 @@ function processInfrastructureItems(items) {
                                 size="large"
                                 :color="myReadyState ? 'default' : 'success'"
                                 @click="sendReady"
-                                :disabled="!!candidateMeetLink && !candidateOpenedMeet"
+                                :disabled="(!!candidateMeetLink && !candidateOpenedMeet) || !candidateReadyButtonEnabled"
                                 >
                                 <VIcon :icon="myReadyState ? 'ri-checkbox-circle-line' : 'ri-checkbox-blank-circle-line'" class="me-2"/>
                                 {{ myReadyState ? 'Pronto!' : 'Estou Pronto!' }}
@@ -2588,9 +2805,33 @@ function processInfrastructureItems(items) {
 }
 
 .impresso-imagem {
+  width: 650px;
+  height: 480px;
   max-width: 100%;
+  object-fit: contain;
   border: 1px solid #eee;
   margin: 10px 0;
+  background-color: #f9f9f9;
+}
+
+/* Responsividade para telas menores */
+@media (max-width: 768px) {
+  .impresso-imagem {
+    width: 100%;
+    height: auto;
+    max-width: 650px;
+    max-height: 480px;
+  }
+}
+
+/* Para tablets */
+@media (max-width: 1024px) and (min-width: 769px) {
+  .impresso-imagem {
+    width: 100%;
+    height: auto;
+    max-width: 650px;
+    max-height: 480px;
+  }
 }
 
 .laudo-impresso pre {
