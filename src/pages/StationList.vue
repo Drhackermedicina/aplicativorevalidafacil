@@ -26,6 +26,14 @@ const onlineUsers = ref([]);
 const userStats = reactive({ simulationsCompleted: 0, averageScore: 0, currentStreak: 0 });
 const userScores = ref({}); // Armazena pontuações do usuário por estação
 
+// --- Refs para busca de candidatos ---
+const selectedCandidate = ref(null); // Candidato selecionado para visualizar estatísticas
+const candidateSearchQuery = ref(''); // Query de busca por candidato
+const candidateSearchSuggestions = ref([]); // Sugestões de candidatos
+const showCandidateSuggestions = ref(false); // Controle de exibição das sugestões
+const selectedCandidateScores = ref({}); // Pontuações do candidato selecionado
+const isLoadingCandidateSearch = ref(false); // Loading para busca de candidatos
+
 // --- Refs para filtros e pesquisa ---
 const searchQuery = ref('');
 const selectedArea = ref('');
@@ -58,10 +66,105 @@ const isAdmin = computed(() => {
   return adminStatus;
 });
 
+const stations2025_1 = computed(() => {
+  const filtered = stations.value.filter(station => {
+    const idEstacao = station.idEstacao || '';
+    const tituloEstacao = station.tituloEstacao || '';
+    // Filtra por padrões flexíveis para INEP 2025.1 (com ponto ou underscore)
+    return idEstacao.startsWith("INEP_2025_1") || 
+           idEstacao.startsWith("INEP_2025.1") ||
+           (tituloEstacao.toUpperCase().includes("INEP") && (tituloEstacao.includes("2025.1") || tituloEstacao.includes("2025_1")));
+  });
+  
+  // Ordenar alfabeticamente por título limpo
+  return filtered
+    .sort((a, b) => getCleanStationTitle(a.tituloEstacao).localeCompare(getCleanStationTitle(b.tituloEstacao), 'pt-BR', { numeric: true }));
+});
+
 const stations2024_2 = computed(() => {
   const filtered = stations.value.filter(station => {
     const idEstacao = station.idEstacao || '';
-    return idEstacao.startsWith("REVALIDA") && idEstacao.includes("2024");
+    const tituloEstacao = station.tituloEstacao || '';
+    // Filtro baseado principalmente no idEstacao para INEP 2024.2
+    return idEstacao.startsWith("INEP_2024_2") || 
+           idEstacao.startsWith("INEP_2024.2") ||
+           (idEstacao.startsWith("REVALIDA") && idEstacao.includes("2024")) || 
+           (tituloEstacao.toUpperCase().includes("INEP") && (tituloEstacao.includes("2024.2") || tituloEstacao.includes("2024_2")));
+  });
+  
+  // Ordenar alfabeticamente por título limpo
+  return filtered
+    .sort((a, b) => getCleanStationTitle(a.tituloEstacao).localeCompare(getCleanStationTitle(b.tituloEstacao), 'pt-BR', { numeric: true }));
+});
+
+const stations2024_1 = computed(() => {
+  const filtered = stations.value.filter(station => {
+    const idEstacao = station.idEstacao || '';
+    const tituloEstacao = station.tituloEstacao || '';
+    // Filtra por padrões flexíveis para INEP 2024.1 (com ponto ou underscore)
+    return idEstacao.startsWith("INEP_2024_1") || 
+           idEstacao.startsWith("INEP_2024.1") ||
+           (tituloEstacao.toUpperCase().includes("INEP") && (tituloEstacao.includes("2024.1") || tituloEstacao.includes("2024_1")));
+  });
+  
+  // Ordenar alfabeticamente por título limpo
+  return filtered
+    .sort((a, b) => getCleanStationTitle(a.tituloEstacao).localeCompare(getCleanStationTitle(b.tituloEstacao), 'pt-BR', { numeric: true }));
+});
+
+const stations2023_2 = computed(() => {
+  const filtered = stations.value.filter(station => {
+    const idEstacao = station.idEstacao || '';
+    const tituloEstacao = station.tituloEstacao || '';
+    // Filtra por padrões flexíveis para INEP 2023.2 (com ponto ou underscore)
+    return idEstacao.startsWith("INEP_2023_2") || 
+           idEstacao.startsWith("INEP_2023.2") ||
+           (tituloEstacao.toUpperCase().includes("INEP") && (tituloEstacao.includes("2023.2") || tituloEstacao.includes("2023_2")));
+  });
+  
+  // Ordenar alfabeticamente por título limpo
+  return filtered
+    .sort((a, b) => getCleanStationTitle(a.tituloEstacao).localeCompare(getCleanStationTitle(b.tituloEstacao), 'pt-BR', { numeric: true }));
+});
+
+const stations2023_1 = computed(() => {
+  const filtered = stations.value.filter(station => {
+    const idEstacao = station.idEstacao || '';
+    const tituloEstacao = station.tituloEstacao || '';
+    // Filtra por padrões flexíveis para INEP 2023.1 (com ponto ou underscore)
+    return idEstacao.startsWith("INEP_2023_1") || 
+           idEstacao.startsWith("INEP_2023.1") ||
+           (tituloEstacao.toUpperCase().includes("INEP") && (tituloEstacao.includes("2023.1") || tituloEstacao.includes("2023_1")));
+  });
+  
+  // Ordenar alfabeticamente por título limpo
+  return filtered
+    .sort((a, b) => getCleanStationTitle(a.tituloEstacao).localeCompare(getCleanStationTitle(b.tituloEstacao), 'pt-BR', { numeric: true }));
+});
+
+const stations2022 = computed(() => {
+  const filtered = stations.value.filter(station => {
+    const idEstacao = station.idEstacao || '';
+    const tituloEstacao = station.tituloEstacao || '';
+    // Filtra por padrões flexíveis para INEP 2022 (qualquer variação)
+    return idEstacao.startsWith("INEP_2022") || 
+           idEstacao.startsWith("INEP2022") ||
+           (tituloEstacao.toUpperCase().includes("INEP") && tituloEstacao.includes("2022"));
+  });
+  
+  // Ordenar alfabeticamente por título limpo
+  return filtered
+    .sort((a, b) => getCleanStationTitle(a.tituloEstacao).localeCompare(getCleanStationTitle(b.tituloEstacao), 'pt-BR', { numeric: true }));
+});
+
+const stations2021 = computed(() => {
+  const filtered = stations.value.filter(station => {
+    const idEstacao = station.idEstacao || '';
+    const tituloEstacao = station.tituloEstacao || '';
+    // Filtra por padrões flexíveis para INEP 2021 (qualquer variação)
+    return idEstacao.startsWith("INEP_2021") || 
+           idEstacao.startsWith("INEP2021") ||
+           (tituloEstacao.toUpperCase().includes("INEP") && tituloEstacao.includes("2021"));
   });
   
   // Ordenar alfabeticamente por título limpo
@@ -590,9 +693,142 @@ async function fetchUserScores() {
   }
 }
 
+// --- Funções para busca de candidatos ---
+async function searchCandidates() {
+  if (!candidateSearchQuery.value?.trim()) {
+    candidateSearchSuggestions.value = [];
+    showCandidateSuggestions.value = false;
+    return;
+  }
+
+  isLoadingCandidateSearch.value = true;
+  try {
+    const searchTerm = candidateSearchQuery.value.trim().toLowerCase();
+    
+    // Verificar se o usuário atual tem permissão
+    if (!currentUser.value?.uid) {
+      throw new Error('Usuário não autenticado');
+    }
+    
+    const usuariosRef = collection(db, 'usuarios');
+    
+    // Buscar por nome (case insensitive)
+    const snapshot = await getDocs(usuariosRef);
+    const candidates = [];
+    
+    snapshot.forEach((doc) => {
+      try {
+        const userData = doc.data();
+        const fullName = `${userData.nome || ''} ${userData.sobrenome || ''}`.toLowerCase();
+        const email = (userData.email || '').toLowerCase();
+        
+        if (fullName.includes(searchTerm) || email.includes(searchTerm)) {
+          candidates.push({
+            uid: doc.id,
+            nome: userData.nome || 'Sem nome',
+            sobrenome: userData.sobrenome || '',
+            email: userData.email || 'Sem email',
+            photoURL: userData.photoURL || null
+          });
+        }
+      } catch (docError) {
+        console.warn('Erro ao processar documento do usuário:', doc.id, docError);
+      }
+    });
+    
+    candidateSearchSuggestions.value = candidates.slice(0, 10); // Limitar a 10 resultados
+    showCandidateSuggestions.value = candidates.length > 0;
+    
+  } catch (error) {
+    console.error('Erro ao buscar candidatos:', error);
+    candidateSearchSuggestions.value = [];
+    showCandidateSuggestions.value = false;
+    
+    // Tratamento específico para erros de permissão
+    if (error.code === 'permission-denied') {
+      console.warn('Permissão negada para buscar usuários. Verifique as regras do Firestore.');
+    }
+  } finally {
+    isLoadingCandidateSearch.value = false;
+  }
+}
+
+async function selectCandidate(candidate) {
+  selectedCandidate.value = candidate;
+  candidateSearchQuery.value = `${candidate.nome} ${candidate.sobrenome}`.trim();
+  showCandidateSuggestions.value = false;
+  
+  // Carregar pontuações do candidato selecionado
+  await fetchCandidateScores(candidate.uid);
+}
+
+async function fetchCandidateScores(candidateUid) {
+  try {
+    if (!candidateUid) {
+      throw new Error('UID do candidato não fornecido');
+    }
+    
+    const scores = {};
+    
+    // Buscar dados do candidato na coleção usuarios
+    const userDocRef = doc(db, 'usuarios', candidateUid);
+    const userDocSnap = await getDoc(userDocRef);
+    
+    if (userDocSnap.exists()) {
+      const userData = userDocSnap.data();
+      const estacoesConcluidas = userData.estacoesConcluidas || [];
+      
+      // Processar cada estação concluída
+      estacoesConcluidas.forEach((estacao) => {
+        try {
+          if (estacao.idEstacao && estacao.nota !== undefined) {
+            // Se já existe uma pontuação para esta estação, manter a maior
+            if (!scores[estacao.idEstacao] || estacao.nota > scores[estacao.idEstacao].score) {
+              scores[estacao.idEstacao] = {
+                score: estacao.nota,
+                maxScore: 100, // Assumindo que a nota máxima é 100
+                date: estacao.data?.toDate ? estacao.data.toDate() : estacao.data,
+                nomeEstacao: estacao.nomeEstacao,
+                especialidade: estacao.especialidade,
+                origem: estacao.origem
+              };
+            }
+          }
+        } catch (estacaoError) {
+          console.warn('Erro ao processar estação do candidato:', estacao, estacaoError);
+        }
+      });
+    } else {
+      console.warn('Documento do candidato não encontrado:', candidateUid);
+    }
+    
+    selectedCandidateScores.value = scores;
+    console.log('Pontuações do candidato carregadas:', scores);
+    
+  } catch (error) {
+    console.error('Erro ao buscar pontuações do candidato:', error);
+    selectedCandidateScores.value = {};
+    
+    // Tratamento específico para erros de permissão
+    if (error.code === 'permission-denied') {
+      console.warn('Permissão negada para buscar dados do candidato. Verifique as regras do Firestore.');
+    }
+  }
+}
+
+function clearCandidateSelection() {
+  selectedCandidate.value = null;
+  candidateSearchQuery.value = '';
+  selectedCandidateScores.value = {};
+  showCandidateSuggestions.value = false;
+}
+
 // --- Função para obter pontuação do usuário para uma estação específica ---
 function getUserStationScore(stationId) {
-  const userScore = userScores.value[stationId];
+  // Se um candidato está selecionado, usar suas pontuações
+  const scoresData = selectedCandidate.value ? selectedCandidateScores.value : userScores.value;
+  const userScore = scoresData[stationId];
+  
   if (!userScore) return null;
   
   const percentage = (userScore.score / userScore.maxScore) * 100;
@@ -619,6 +855,21 @@ async function startSimulationAsActor(stationId) {
     isLoadingSession.value = true;
     errorApi.value = '';
     
+    // Salvar candidato selecionado no sessionStorage se houver um
+    if (selectedCandidate.value) {
+      const candidateData = {
+        uid: selectedCandidate.value.uid,
+        name: `${selectedCandidate.value.nome} ${selectedCandidate.value.sobrenome}`.trim(),
+        email: selectedCandidate.value.email,
+        photoURL: selectedCandidate.value.photoURL,
+        selectedAt: Date.now(),
+        sessionId: null // será preenchido após criar a sessão
+      };
+      
+      sessionStorage.setItem('selectedCandidate', JSON.stringify(candidateData));
+      console.log('Candidato selecionado salvo para a simulação:', candidateData);
+    }
+    
     // O backend espera apenas stationId, não checklistId
     const response = await fetch(`${backendUrl}/api/create-session`, {
       method: 'POST',
@@ -638,6 +889,15 @@ async function startSimulationAsActor(stationId) {
     
     const result = await response.json();
     if (result.sessionId) {
+      // Atualizar o sessionId no candidato selecionado
+      if (selectedCandidate.value) {
+        const candidateData = JSON.parse(sessionStorage.getItem('selectedCandidate'));
+        if (candidateData) {
+          candidateData.sessionId = result.sessionId;
+          sessionStorage.setItem('selectedCandidate', JSON.stringify(candidateData));
+        }
+      }
+      
       const navigationUrl = `/app/simulation/${stationId}?sessionId=${result.sessionId}&role=actor`;
       
       // Navegar para a simulação com os parâmetros corretos
@@ -693,6 +953,16 @@ watch(selectedCategory, () => {
 
 watch(searchQuery, () => {
   updateSuggestions();
+});
+
+// Watch para busca de candidatos com debounce
+watch(candidateSearchQuery, () => {
+  if (candidateSearchQuery.value.trim()) {
+    searchCandidates();
+  } else {
+    candidateSearchSuggestions.value = [];
+    showCandidateSuggestions.value = false;
+  }
 });
 
 // Watch para carregar pontuações quando o usuário mudar
@@ -805,6 +1075,108 @@ const exampleVariable = ref(null); // Exemplo de declaração válida
           </v-card-text>
         </v-card>
 
+        <!-- Candidato Selecionado - Visível apenas quando um candidato está selecionado -->
+        <v-card v-if="selectedCandidate" class="mb-4" elevation="2" rounded>
+          <v-card-title class="d-flex align-center justify-space-between">
+            <div class="d-flex align-center">
+              <v-icon class="me-2" color="success">ri-user-check-line</v-icon>
+              <span class="text-h6">Candidato Selecionado</span>
+            </div>
+            <v-btn
+              variant="outlined"
+              size="small"
+              color="error"
+              @click="clearCandidateSelection"
+              prepend-icon="ri-close-line"
+            >
+              Limpar
+            </v-btn>
+          </v-card-title>
+          <v-card-text>
+            <v-alert
+              type="success"
+              variant="tonal"
+              class="mb-0"
+            >
+              <template #title>
+                <div class="d-flex align-center">
+                  <v-avatar size="32" class="me-2">
+                    <v-img v-if="selectedCandidate.photoURL" :src="selectedCandidate.photoURL" />
+                    <v-icon v-else>ri-user-line</v-icon>
+                  </v-avatar>
+                  <div>
+                    <div class="font-weight-bold">{{ selectedCandidate.nome }} {{ selectedCandidate.sobrenome }}</div>
+                    <div class="text-caption">{{ selectedCandidate.email }}</div>
+                  </div>
+                </div>
+              </template>
+              <div class="text-body-2 mt-2">
+                Visualizando estatísticas deste candidato nas estações abaixo
+              </div>
+            </v-alert>
+          </v-card-text>
+        </v-card>
+
+        <!-- Campo de Busca de Candidato - Visível apenas quando nenhum candidato está selecionado -->
+        <v-card v-if="!selectedCandidate" class="mb-4" elevation="2" rounded>
+          <v-card-title class="d-flex align-center">
+            <v-icon class="me-2" color="primary">ri-search-line</v-icon>
+            <span class="text-h6">Buscar Candidato</span>
+          </v-card-title>
+          <v-card-text>
+            <!-- Campo de busca -->
+            <v-menu
+              v-model="showCandidateSuggestions"
+              :close-on-content-click="false"
+              location="bottom"
+              offset="4"
+              max-height="300"
+            >
+              <template #activator="{ props }">
+                <v-text-field
+                  v-bind="props"
+                  v-model="candidateSearchQuery"
+                  label="Digite o nome do candidato"
+                  placeholder="Ex: João Silva"
+                  prepend-inner-icon="ri-search-line"
+                  variant="outlined"
+                  :loading="isLoadingCandidateSearch"
+                  @input="searchCandidates"
+                  @focus="candidateSearchQuery && searchCandidates()"
+                  clearable
+                  hide-details
+                />
+              </template>
+              
+              <!-- Lista de sugestões -->
+              <v-card
+                v-if="candidateSearchSuggestions.length > 0"
+                elevation="8"
+                max-height="300"
+                style="overflow-y: auto;"
+              >
+                <v-list density="compact">
+                  <v-list-item
+                    v-for="candidate in candidateSearchSuggestions"
+                    :key="candidate.uid"
+                    @click="selectCandidate(candidate)"
+                    class="candidate-suggestion-item"
+                  >
+                    <template #prepend>
+                      <v-avatar size="32">
+                        <v-img v-if="candidate.photoURL" :src="candidate.photoURL" />
+                        <v-icon v-else>ri-user-line</v-icon>
+                      </v-avatar>
+                    </template>
+                    <v-list-item-title>{{ candidate.nome }} {{ candidate.sobrenome }}</v-list-item-title>
+                    <v-list-item-subtitle>{{ candidate.email }}</v-list-item-subtitle>
+                  </v-list-item>
+                </v-list>
+              </v-card>
+            </v-menu>
+          </v-card-text>
+        </v-card>
+
         <!-- Expansion Panels para Seções Principais -->
         <v-expansion-panels variant="accordion" class="mb-6">
           
@@ -820,7 +1192,7 @@ const exampleVariable = ref(null); // Exemplo de declaração válida
                     INEP Revalida – Provas Anteriores
                   </v-col>
                   <v-col cols="auto">
-                    <v-badge :content="stations2024_2.length" color="primary" inline />
+                    <v-badge :content="stations2025_1.length + stations2024_2.length + stations2024_1.length + stations2023_2.length + stations2023_1.length + stations2022.length + stations2021.length" color="primary" inline />
                   </v-col>
                 </v-row>
               </template>
@@ -828,6 +1200,77 @@ const exampleVariable = ref(null); // Exemplo de declaração válida
             <v-expansion-panel-text>
               <!-- Sub-accordions para as provas -->
               <v-expansion-panels variant="accordion" class="mt-4">
+                
+                <!-- INEP 2025.1 -->
+                <v-expansion-panel>
+                  <v-expansion-panel-title class="text-subtitle-1 font-weight-medium">
+                    <template #default="{ expanded }">
+                      <v-row no-gutters align="center">
+                        <v-col cols="auto">
+                          <v-icon class="me-2" color="info">ri-calendar-event-line</v-icon>
+                        </v-col>
+                        <v-col>
+                          INEP 2025.1
+                        </v-col>
+                        <v-col cols="auto">
+                          <v-badge :content="stations2025_1.length" color="info" inline />
+                        </v-col>
+                      </v-row>
+                    </template>
+                  </v-expansion-panel-title>
+                  <v-expansion-panel-text v-if="stations2025_1.length > 0">
+                    <v-list density="comfortable">
+                      <v-list-item
+                        v-for="station in stations2025_1"
+                        :key="station.id"
+                        class="mb-2 rounded-lg elevation-1 station-list-item clickable-card"
+                        :class="isDarkTheme ? 'bg-grey-darken-3' : 'bg-grey-lighten-4'"
+                        @click="startSimulationAsActor(station.id)"
+                      >
+                        <template #prepend>
+                          <v-icon color="info">ri-file-list-3-line</v-icon>
+                        </template>
+                        <v-list-item-title class="font-weight-bold text-body-1">{{ getCleanStationTitle(station.tituloEstacao) }}</v-list-item-title>
+                        <v-list-item-subtitle class="text-caption text-secondary">{{ station.especialidade }}</v-list-item-subtitle>
+                        
+                        <!-- Pontuação do usuário -->
+                        <div v-if="getUserStationScore(station.id)" class="mt-2">
+                          <v-chip 
+                            :color="getUserStationScore(station.id).percentage >= 70 ? 'success' : getUserStationScore(station.id).percentage >= 50 ? 'warning' : 'error'"
+                            variant="flat"
+                            size="small"
+                            class="user-score-chip"
+                          >
+                            <v-icon start size="16">ri-star-fill</v-icon>
+                            {{ getUserStationScore(station.id).score }}/{{ getUserStationScore(station.id).maxScore }} ({{ getUserStationScore(station.id).percentage }}%)
+                          </v-chip>
+                        </div>
+                        <template #append>
+                          <div class="d-flex align-center">
+                            <v-progress-circular
+                              v-if="creatingSessionForStationId === station.id"
+                              indeterminate
+                              size="24"
+                              color="primary"
+                              class="me-2"
+                            />
+                            <v-btn
+                              v-if="isAdmin"
+                              color="secondary"
+                              variant="text"
+                              size="small"
+                              icon="ri-pencil-line"
+                              @click.stop="goToEditStation(station.id)"
+                              class="me-2"
+                              aria-label="Editar Estação"
+                            />
+                          </div>
+                        </template>
+                      </v-list-item>
+                    </v-list>
+                  </v-expansion-panel-text>
+                </v-expansion-panel>
+                
                 <!-- INEP 2024.2 -->
                 <v-expansion-panel v-if="stations2024_2.length > 0">
                   <v-expansion-panel-title class="text-subtitle-1 font-weight-medium">
@@ -849,6 +1292,356 @@ const exampleVariable = ref(null); // Exemplo de declaração válida
                     <v-list density="comfortable">
                       <v-list-item
                         v-for="station in stations2024_2"
+                        :key="station.id"
+                        class="mb-2 rounded-lg elevation-1 station-list-item clickable-card"
+                        :class="isDarkTheme ? 'bg-grey-darken-3' : 'bg-grey-lighten-4'"
+                        @click="startSimulationAsActor(station.id)"
+                      >
+                        <template #prepend>
+                          <v-icon color="info">ri-file-list-3-line</v-icon>
+                        </template>
+                        <v-list-item-title class="font-weight-bold text-body-1">{{ getCleanStationTitle(station.tituloEstacao) }}</v-list-item-title>
+                        <v-list-item-subtitle class="text-caption text-secondary">{{ station.especialidade }}</v-list-item-subtitle>
+                        
+                        <!-- Pontuação do usuário -->
+                        <div v-if="getUserStationScore(station.id)" class="mt-2">
+                          <v-chip 
+                            :color="getUserStationScore(station.id).percentage >= 70 ? 'success' : getUserStationScore(station.id).percentage >= 50 ? 'warning' : 'error'"
+                            variant="flat"
+                            size="small"
+                            class="user-score-chip"
+                          >
+                            <v-icon start size="16">ri-star-fill</v-icon>
+                            {{ getUserStationScore(station.id).score }}/{{ getUserStationScore(station.id).maxScore }} ({{ getUserStationScore(station.id).percentage }}%)
+                          </v-chip>
+                        </div>
+                        <template #append>
+                          <div class="d-flex align-center">
+                            <v-progress-circular
+                              v-if="creatingSessionForStationId === station.id"
+                              indeterminate
+                              size="24"
+                              color="primary"
+                              class="me-2"
+                            />
+                            <v-btn
+                              v-if="isAdmin"
+                              color="secondary"
+                              variant="text"
+                              size="small"
+                              icon="ri-pencil-line"
+                              @click.stop="goToEditStation(station.id)"
+                              class="me-2"
+                              aria-label="Editar Estação"
+                            />
+                          </div>
+                        </template>
+                      </v-list-item>
+                    </v-list>
+                  </v-expansion-panel-text>
+                </v-expansion-panel>
+                
+                <!-- INEP 2024.1 -->
+                <v-expansion-panel>
+                  <v-expansion-panel-title class="text-subtitle-1 font-weight-medium">
+                    <template #default="{ expanded }">
+                      <v-row no-gutters align="center">
+                        <v-col cols="auto">
+                          <v-icon class="me-2" color="info">ri-calendar-event-line</v-icon>
+                        </v-col>
+                        <v-col>
+                          INEP 2024.1
+                        </v-col>
+                        <v-col cols="auto">
+                          <v-badge :content="stations2024_1.length" color="info" inline />
+                        </v-col>
+                      </v-row>
+                    </template>
+                  </v-expansion-panel-title>
+                  <v-expansion-panel-text v-if="stations2024_1.length > 0">>
+                    <v-list density="comfortable">
+                      <v-list-item
+                        v-for="station in stations2024_1"
+                        :key="station.id"
+                        class="mb-2 rounded-lg elevation-1 station-list-item clickable-card"
+                        :class="isDarkTheme ? 'bg-grey-darken-3' : 'bg-grey-lighten-4'"
+                        @click="startSimulationAsActor(station.id)"
+                      >
+                        <template #prepend>
+                          <v-icon color="info">ri-file-list-3-line</v-icon>
+                        </template>
+                        <v-list-item-title class="font-weight-bold text-body-1">{{ getCleanStationTitle(station.tituloEstacao) }}</v-list-item-title>
+                        <v-list-item-subtitle class="text-caption text-secondary">{{ station.especialidade }}</v-list-item-subtitle>
+                        
+                        <!-- Pontuação do usuário -->
+                        <div v-if="getUserStationScore(station.id)" class="mt-2">
+                          <v-chip 
+                            :color="getUserStationScore(station.id).percentage >= 70 ? 'success' : getUserStationScore(station.id).percentage >= 50 ? 'warning' : 'error'"
+                            variant="flat"
+                            size="small"
+                            class="user-score-chip"
+                          >
+                            <v-icon start size="16">ri-star-fill</v-icon>
+                            {{ getUserStationScore(station.id).score }}/{{ getUserStationScore(station.id).maxScore }} ({{ getUserStationScore(station.id).percentage }}%)
+                          </v-chip>
+                        </div>
+                        <template #append>
+                          <div class="d-flex align-center">
+                            <v-progress-circular
+                              v-if="creatingSessionForStationId === station.id"
+                              indeterminate
+                              size="24"
+                              color="primary"
+                              class="me-2"
+                            />
+                            <v-btn
+                              v-if="isAdmin"
+                              color="secondary"
+                              variant="text"
+                              size="small"
+                              icon="ri-pencil-line"
+                              @click.stop="goToEditStation(station.id)"
+                              class="me-2"
+                              aria-label="Editar Estação"
+                            />
+                          </div>
+                        </template>
+                      </v-list-item>
+                    </v-list>
+                  </v-expansion-panel-text>
+                </v-expansion-panel>
+                
+                <!-- INEP 2023.2 -->
+                <v-expansion-panel>
+                  <v-expansion-panel-title class="text-subtitle-1 font-weight-medium">
+                    <template #default="{ expanded }">
+                      <v-row no-gutters align="center">
+                        <v-col cols="auto">
+                          <v-icon class="me-2" color="info">ri-calendar-event-line</v-icon>
+                        </v-col>
+                        <v-col>
+                          INEP 2023.2
+                        </v-col>
+                        <v-col cols="auto">
+                          <v-badge :content="stations2023_2.length" color="info" inline />
+                        </v-col>
+                      </v-row>
+                    </template>
+                  </v-expansion-panel-title>
+                  <v-expansion-panel-text v-if="stations2023_2.length > 0">>
+                    <v-list density="comfortable">
+                      <v-list-item
+                        v-for="station in stations2023_2"
+                        :key="station.id"
+                        class="mb-2 rounded-lg elevation-1 station-list-item clickable-card"
+                        :class="isDarkTheme ? 'bg-grey-darken-3' : 'bg-grey-lighten-4'"
+                        @click="startSimulationAsActor(station.id)"
+                      >
+                        <template #prepend>
+                          <v-icon color="info">ri-file-list-3-line</v-icon>
+                        </template>
+                        <v-list-item-title class="font-weight-bold text-body-1">{{ getCleanStationTitle(station.tituloEstacao) }}</v-list-item-title>
+                        <v-list-item-subtitle class="text-caption text-secondary">{{ station.especialidade }}</v-list-item-subtitle>
+                        
+                        <!-- Pontuação do usuário -->
+                        <div v-if="getUserStationScore(station.id)" class="mt-2">
+                          <v-chip 
+                            :color="getUserStationScore(station.id).percentage >= 70 ? 'success' : getUserStationScore(station.id).percentage >= 50 ? 'warning' : 'error'"
+                            variant="flat"
+                            size="small"
+                            class="user-score-chip"
+                          >
+                            <v-icon start size="16">ri-star-fill</v-icon>
+                            {{ getUserStationScore(station.id).score }}/{{ getUserStationScore(station.id).maxScore }} ({{ getUserStationScore(station.id).percentage }}%)
+                          </v-chip>
+                        </div>
+                        <template #append>
+                          <div class="d-flex align-center">
+                            <v-progress-circular
+                              v-if="creatingSessionForStationId === station.id"
+                              indeterminate
+                              size="24"
+                              color="primary"
+                              class="me-2"
+                            />
+                            <v-btn
+                              v-if="isAdmin"
+                              color="secondary"
+                              variant="text"
+                              size="small"
+                              icon="ri-pencil-line"
+                              @click.stop="goToEditStation(station.id)"
+                              class="me-2"
+                              aria-label="Editar Estação"
+                            />
+                          </div>
+                        </template>
+                      </v-list-item>
+                    </v-list>
+                  </v-expansion-panel-text>
+                </v-expansion-panel>
+                
+                <!-- INEP 2023.1 -->
+                <v-expansion-panel>
+                  <v-expansion-panel-title class="text-subtitle-1 font-weight-medium">
+                    <template #default="{ expanded }">
+                      <v-row no-gutters align="center">
+                        <v-col cols="auto">
+                          <v-icon class="me-2" color="info">ri-calendar-event-line</v-icon>
+                        </v-col>
+                        <v-col>
+                          INEP 2023.1
+                        </v-col>
+                        <v-col cols="auto">
+                          <v-badge :content="stations2023_1.length" color="info" inline />
+                        </v-col>
+                      </v-row>
+                    </template>
+                  </v-expansion-panel-title>
+                  <v-expansion-panel-text v-if="stations2023_1.length > 0">>
+                    <v-list density="comfortable">
+                      <v-list-item
+                        v-for="station in stations2023_1"
+                        :key="station.id"
+                        class="mb-2 rounded-lg elevation-1 station-list-item clickable-card"
+                        :class="isDarkTheme ? 'bg-grey-darken-3' : 'bg-grey-lighten-4'"
+                        @click="startSimulationAsActor(station.id)"
+                      >
+                        <template #prepend>
+                          <v-icon color="info">ri-file-list-3-line</v-icon>
+                        </template>
+                        <v-list-item-title class="font-weight-bold text-body-1">{{ getCleanStationTitle(station.tituloEstacao) }}</v-list-item-title>
+                        <v-list-item-subtitle class="text-caption text-secondary">{{ station.especialidade }}</v-list-item-subtitle>
+                        
+                        <!-- Pontuação do usuário -->
+                        <div v-if="getUserStationScore(station.id)" class="mt-2">
+                          <v-chip 
+                            :color="getUserStationScore(station.id).percentage >= 70 ? 'success' : getUserStationScore(station.id).percentage >= 50 ? 'warning' : 'error'"
+                            variant="flat"
+                            size="small"
+                            class="user-score-chip"
+                          >
+                            <v-icon start size="16">ri-star-fill</v-icon>
+                            {{ getUserStationScore(station.id).score }}/{{ getUserStationScore(station.id).maxScore }} ({{ getUserStationScore(station.id).percentage }}%)
+                          </v-chip>
+                        </div>
+                        <template #append>
+                          <div class="d-flex align-center">
+                            <v-progress-circular
+                              v-if="creatingSessionForStationId === station.id"
+                              indeterminate
+                              size="24"
+                              color="primary"
+                              class="me-2"
+                            />
+                            <v-btn
+                              v-if="isAdmin"
+                              color="secondary"
+                              variant="text"
+                              size="small"
+                              icon="ri-pencil-line"
+                              @click.stop="goToEditStation(station.id)"
+                              class="me-2"
+                              aria-label="Editar Estação"
+                            />
+                          </div>
+                        </template>
+                      </v-list-item>
+                    </v-list>
+                  </v-expansion-panel-text>
+                </v-expansion-panel>
+                
+                <!-- INEP 2022 -->
+                <v-expansion-panel>
+                  <v-expansion-panel-title class="text-subtitle-1 font-weight-medium">
+                    <template #default="{ expanded }">
+                      <v-row no-gutters align="center">
+                        <v-col cols="auto">
+                          <v-icon class="me-2" color="info">ri-calendar-event-line</v-icon>
+                        </v-col>
+                        <v-col>
+                          INEP 2022
+                        </v-col>
+                        <v-col cols="auto">
+                          <v-badge :content="stations2022.length" color="info" inline />
+                        </v-col>
+                      </v-row>
+                    </template>
+                  </v-expansion-panel-title>
+                  <v-expansion-panel-text v-if="stations2022.length > 0">>
+                    <v-list density="comfortable">
+                      <v-list-item
+                        v-for="station in stations2022"
+                        :key="station.id"
+                        class="mb-2 rounded-lg elevation-1 station-list-item clickable-card"
+                        :class="isDarkTheme ? 'bg-grey-darken-3' : 'bg-grey-lighten-4'"
+                        @click="startSimulationAsActor(station.id)"
+                      >
+                        <template #prepend>
+                          <v-icon color="info">ri-file-list-3-line</v-icon>
+                        </template>
+                        <v-list-item-title class="font-weight-bold text-body-1">{{ getCleanStationTitle(station.tituloEstacao) }}</v-list-item-title>
+                        <v-list-item-subtitle class="text-caption text-secondary">{{ station.especialidade }}</v-list-item-subtitle>
+                        
+                        <!-- Pontuação do usuário -->
+                        <div v-if="getUserStationScore(station.id)" class="mt-2">
+                          <v-chip 
+                            :color="getUserStationScore(station.id).percentage >= 70 ? 'success' : getUserStationScore(station.id).percentage >= 50 ? 'warning' : 'error'"
+                            variant="flat"
+                            size="small"
+                            class="user-score-chip"
+                          >
+                            <v-icon start size="16">ri-star-fill</v-icon>
+                            {{ getUserStationScore(station.id).score }}/{{ getUserStationScore(station.id).maxScore }} ({{ getUserStationScore(station.id).percentage }}%)
+                          </v-chip>
+                        </div>
+                        <template #append>
+                          <div class="d-flex align-center">
+                            <v-progress-circular
+                              v-if="creatingSessionForStationId === station.id"
+                              indeterminate
+                              size="24"
+                              color="primary"
+                              class="me-2"
+                            />
+                            <v-btn
+                              v-if="isAdmin"
+                              color="secondary"
+                              variant="text"
+                              size="small"
+                              icon="ri-pencil-line"
+                              @click.stop="goToEditStation(station.id)"
+                              class="me-2"
+                              aria-label="Editar Estação"
+                            />
+                          </div>
+                        </template>
+                      </v-list-item>
+                    </v-list>
+                  </v-expansion-panel-text>
+                </v-expansion-panel>
+                
+                <!-- INEP 2021 -->
+                <v-expansion-panel>
+                  <v-expansion-panel-title class="text-subtitle-1 font-weight-medium">
+                    <template #default="{ expanded }">
+                      <v-row no-gutters align="center">
+                        <v-col cols="auto">
+                          <v-icon class="me-2" color="info">ri-calendar-event-line</v-icon>
+                        </v-col>
+                        <v-col>
+                          INEP 2021
+                        </v-col>
+                        <v-col cols="auto">
+                          <v-badge :content="stations2021.length" color="info" inline />
+                        </v-col>
+                      </v-row>
+                    </template>
+                  </v-expansion-panel-title>
+                  <v-expansion-panel-text v-if="stations2021.length > 0">>
+                    <v-list density="comfortable">
+                      <v-list-item
+                        v-for="station in stations2021"
                         :key="station.id"
                         class="mb-2 rounded-lg elevation-1 station-list-item clickable-card"
                         :class="isDarkTheme ? 'bg-grey-darken-3' : 'bg-grey-lighten-4'"
@@ -1432,5 +2225,27 @@ const exampleVariable = ref(null); // Exemplo de declaração válida
 
 .user-score-chip .v-icon {
   margin-right: 4px;
+}
+
+/* Candidate search suggestions */
+.candidate-suggestion-item {
+  cursor: pointer;
+  transition: background-color 0.2s ease;
+}
+
+.candidate-suggestion-item:hover {
+  background-color: rgba(var(--v-theme-primary), 0.08);
+}
+
+.position-relative {
+  position: relative;
+}
+
+.position-absolute {
+  position: absolute;
+}
+
+.w-100 {
+  width: 100%;
 }
 </style>
