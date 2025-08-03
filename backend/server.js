@@ -41,6 +41,14 @@ app.get('/health', (req, res) => {
 // Endpoint para criar uma nova sessão de simulação
 app.post('/api/create-session', (req, res) => {
   const { stationId, communicationMethod } = req.body;
+  
+  // 🔍 DEBUG: Log do que recebemos
+  console.log(`[API] POST /api/create-session recebido:`, { 
+    stationId, 
+    communicationMethod,
+    body: req.body 
+  });
+  
   if (!stationId) {
     return res.status(400).json({ error: 'ID da estação é obrigatório' });
   }
