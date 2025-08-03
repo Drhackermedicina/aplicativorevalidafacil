@@ -18,7 +18,18 @@
                 <div class="font-weight-medium text-body-2 mb-1" :class="{ 'text-right': message.senderId === currentUser?.uid }">
                   {{ message.senderName }}
                 </div>
-                <p class="text-body-1 mb-1">{{ message.text }}</p>
+                <div class="text-body-1 mb-1" v-html="formatMessageText(message.text)"></div>
+                <div v-if="hasLinks(message.text)" class="d-flex justify-end mt-2">
+                  <v-btn
+                    size="x-small"
+                    variant="text"
+                    @click="copyMessageLinks(message.text)"
+                    :color="message.senderId === currentUser?.uid ? 'white' : 'primary'"
+                  >
+                    <v-icon size="14" class="me-1">ri-clipboard-line</v-icon>
+                    Copiar Link
+                  </v-btn>
+                </div>
                 <div class="text-caption text-right" :class="message.senderId === currentUser?.uid ? 'text-white-50' : 'text-medium-emphasis'">
                   {{ formatTime(message.timestamp) }}
                 </div>
@@ -140,6 +151,57 @@ const scrollToEnd = () => {
     messagesEnd.value.scrollIntoView({ behavior: 'smooth' });
   }
 };
+
+// Função para detectar e formatar links no texto
+const formatMessageText = (text) => {
+  if (!text) return '';
+  
+  // Regex para detectar URLs (http/https)
+  const urlRegex = /(https?:\/\/[^\s]+)/g;
+  
+  return text.replace(urlRegex, (url) => {
+    return `<a href="${url}" target="_blank" rel="noopener noreferrer" class="message-link">${url}</a>`;
+  }).replace(/\n/g, '<br>');
+};
+
+// Função para verificar se a mensagem contém links
+const hasLinks = (text) => {
+  if (!text) return false;
+  const urlRegex = /(https?:\/\/[^\s]+)/g;
+  return urlRegex.test(text);
+};
+
+// Função para copiar links da mensagem
+const copyMessageLinks = async (text) => {
+  if (!text) return;
+  
+  const urlRegex = /(https?:\/\/[^\s]+)/g;
+  const links = text.match(urlRegex);
+  
+  if (links && links.length > 0) {
+    try {
+      // Se houver apenas um link, copia diretamente
+      if (links.length === 1) {
+        await navigator.clipboard.writeText(links[0]);
+      } else {
+        // Se houver múltiplos links, copia todos separados por quebra de linha
+        await navigator.clipboard.writeText(links.join('\n'));
+      }
+      
+      // Aqui você pode adicionar uma notificação de sucesso se desejar
+      console.log('Link(s) copiado(s) com sucesso!');
+    } catch (error) {
+      console.error('Erro ao copiar link:', error);
+      // Fallback para navegadores mais antigos
+      const textArea = document.createElement('textarea');
+      textArea.value = links.length === 1 ? links[0] : links.join('\n');
+      document.body.appendChild(textArea);
+      textArea.select();
+      document.execCommand('copy');
+      document.body.removeChild(textArea);
+    }
+  }
+};
 </script>
 
 <style scoped>
@@ -183,6 +245,31 @@ const scrollToEnd = () => {
   background: #fff !important;
   color: #333 !important;
 }
+
+/* Estilos para links em mensagens */
+.message-content :deep(.message-link) {
+  color: #1976d2 !important;
+  text-decoration: underline;
+  word-break: break-all;
+  transition: color 0.2s ease;
+}
+
+.my-message :deep(.message-link) {
+  color: #bbdefb !important;
+}
+
+.my-message :deep(.message-link):hover {
+  color: #e3f2fd !important;
+}
+
+.other-message :deep(.message-link) {
+  color: #1976d2 !important;
+}
+
+.other-message :deep(.message-link):hover {
+  color: #0d47a1 !important;
+}
+
 .chat-input-bar {
   background: #f8f9fb;
   border-radius: 0 0 12px 12px;

@@ -27,8 +27,7 @@
       </VCardTitle>
       
       <VCardText class="pa-4 pt-0">
-        <div class="message-preview">
-          {{ notification.text }}
+        <div class="message-preview" v-html="formatNotificationText(notification.text)">
         </div>
         <div class="text-caption text-medium-emphasis mt-2">
           {{ formatTime(notification.timestamp) }}
@@ -37,10 +36,20 @@
       
       <VCardActions class="pa-4 pt-0">
         <VBtn
+          v-if="hasLinksInNotification(notification.text)"
+          variant="flat"
+          color="success"
+          @click="copyNotificationLinks"
+          :loading="copyingLink"
+        >
+          <VIcon icon="ri-clipboard-line" class="me-2" />
+          {{ linkCopied ? 'Copiado!' : 'Copiar Link' }}
+        </VBtn>
+        <VBtn
           variant="text"
           color="primary"
           @click="openChat"
-          class="flex-grow-1"
+          :class="hasLinksInNotification(notification.text) ? '' : 'flex-grow-1'"
         >
           <VIcon icon="ri-message-line" class="me-2" />
           Abrir Chat
@@ -57,12 +66,14 @@
 </template>
 
 <script setup>
-import { ref, onMounted, onUnmounted } from 'vue'
+import { onMounted, onUnmounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 
 const router = useRouter()
 
 const showNotification = ref(false)
+const copyingLink = ref(false)
+const linkCopied = ref(false)
 const notification = ref({
   senderId: '',
   senderName: '',
@@ -117,6 +128,78 @@ const formatTime = (timestamp) => {
   }
 }
 
+// Função para formatar texto de notificação com links
+const formatNotificationText = (text) => {
+  if (!text) return ''
+  
+  // Regex para detectar URLs (http/https)
+  const urlRegex = /(https?:\/\/[^\s]+)/g
+  
+  // Substitui URLs por versões encurtadas mais amigáveis
+  return text.replace(urlRegex, (url) => {
+    const shortUrl = url.length > 50 ? url.substring(0, 47) + '...' : url
+    return `<span class="notification-link">${shortUrl}</span>`
+  }).replace(/\n/g, '<br>')
+}
+
+// Função para verificar se a notificação contém links
+const hasLinksInNotification = (text) => {
+  if (!text) return false
+  const urlRegex = /(https?:\/\/[^\s]+)/g
+  return urlRegex.test(text)
+}
+
+// Função para copiar links da notificação
+const copyNotificationLinks = async () => {
+  const text = notification.value.text
+  if (!text) return
+  
+  copyingLink.value = true
+  
+  try {
+    const urlRegex = /(https?:\/\/[^\s]+)/g
+    const links = text.match(urlRegex)
+    
+    if (links && links.length > 0) {
+      // Se houver apenas um link, copia diretamente
+      if (links.length === 1) {
+        await navigator.clipboard.writeText(links[0])
+      } else {
+        // Se houver múltiplos links, copia todos separados por quebra de linha
+        await navigator.clipboard.writeText(links.join('\n'))
+      }
+      
+      linkCopied.value = true
+      
+      // Reset do estado após 2 segundos
+      setTimeout(() => {
+        linkCopied.value = false
+      }, 2000)
+    }
+  } catch (error) {
+    console.error('Erro ao copiar link:', error)
+    // Fallback para navegadores mais antigos
+    const urlRegex = /(https?:\/\/[^\s]+)/g
+    const links = text.match(urlRegex)
+    
+    if (links && links.length > 0) {
+      const textArea = document.createElement('textarea')
+      textArea.value = links.length === 1 ? links[0] : links.join('\n')
+      document.body.appendChild(textArea)
+      textArea.select()
+      document.execCommand('copy')
+      document.body.removeChild(textArea)
+      
+      linkCopied.value = true
+      setTimeout(() => {
+        linkCopied.value = false
+      }, 2000)
+    }
+  } finally {
+    copyingLink.value = false
+  }
+}
+
 onMounted(() => {
   window.addEventListener('privateChatNotification', handlePrivateChatNotification)
 })
@@ -144,6 +227,14 @@ onUnmounted(() => {
   max-height: 80px;
   overflow-y: auto;
   word-break: break-word;
+}
+
+.notification-link {
+  color: rgb(var(--v-theme-primary));
+  font-weight: 500;
+  background-color: rgba(var(--v-theme-primary), 0.1);
+  padding: 2px 4px;
+  border-radius: 4px;
 }
 
 /* Animação personalizada para notificação */
